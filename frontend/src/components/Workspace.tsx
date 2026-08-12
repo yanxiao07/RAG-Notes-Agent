@@ -1856,6 +1856,9 @@ export function ResearchPanel({
           </li>
         </ol>
       </div>
+      {retrievalDiagnostics && (
+        <RetrievalGovernanceSummary diagnostics={retrievalDiagnostics} />
+      )}
       <form className="research-composer" onSubmit={handleResearchSubmit}>
         <Search size={20} aria-hidden="true" />
         <input
@@ -1925,6 +1928,24 @@ export function ResearchPanel({
                   {evidence.sourceType === "note" ? "笔记" : "文档块"}
                 </span>
                 <span>{Math.round(evidence.score * 100)}% 匹配</span>
+                {evidence.governanceAvailability &&
+                  evidence.governanceAvailability !== "available" && (
+                    <span className="evidence-governance-state">
+                      {evidenceGovernanceAvailabilityLabel(
+                        evidence.governanceAvailability,
+                      )}
+                    </span>
+                  )}
+                {evidence.conflictState === "conflicted" && (
+                  <span className="evidence-governance-state conflicted">
+                    存在冲突
+                  </span>
+                )}
+                {evidence.sourceTrustLevel === "unverified" && (
+                  <span className="evidence-governance-state unverified">
+                    未核验
+                  </span>
+                )}
               </span>
               <strong>{evidence.title}</strong>
               <span>{markdownToPlainText(evidence.content)}</span>
@@ -1940,6 +1961,45 @@ export function ResearchPanel({
       </div>
     </section>
   );
+}
+
+function RetrievalGovernanceSummary({
+  diagnostics,
+}: {
+  diagnostics: RetrievalDiagnostics;
+}) {
+  const entries = [
+    diagnostics.governanceExcludedSuperseded > 0
+      ? `已替代 ${diagnostics.governanceExcludedSuperseded}`
+      : null,
+    diagnostics.governanceExcludedFutureEffective > 0
+      ? `未生效 ${diagnostics.governanceExcludedFutureEffective}`
+      : null,
+    diagnostics.governanceExpiredCandidates > 0
+      ? `过期降权 ${diagnostics.governanceExpiredCandidates}`
+      : null,
+    diagnostics.governanceConflictedCandidates > 0
+      ? `冲突降权 ${diagnostics.governanceConflictedCandidates}`
+      : null,
+    diagnostics.governanceTrustAdjustedCandidates > 0
+      ? `可信度调整 ${diagnostics.governanceTrustAdjustedCandidates}`
+      : null,
+  ].filter((entry): entry is string => entry !== null);
+
+  if (entries.length === 0) return null;
+  return (
+    <aside className="retrieval-governance-summary" aria-label="资料治理影响">
+      <span>资料治理</span>
+      <p>{entries.join(" · ")}</p>
+    </aside>
+  );
+}
+
+function evidenceGovernanceAvailabilityLabel(value: string) {
+  const labels: Record<string, string> = {
+    expired: "已过期",
+  };
+  return labels[value] ?? "受限资料";
 }
 
 function dynamicTopKStopLabel(reason: string) {
