@@ -1619,6 +1619,30 @@ export function AssistantPanel({
                           来源不可用
                         </small>
                       )}
+                      {citation.governanceAvailability === "expired" && (
+                        <small
+                          className="citation-source-warning"
+                          title="资料在生成回答时已过期，作为可追溯历史证据保留并已降权。"
+                        >
+                          资料已过期
+                        </small>
+                      )}
+                      {citation.conflictState === "conflicted" && (
+                        <small
+                          className="citation-source-warning conflict"
+                          title="资料在生成回答时存在人工标记的冲突，作为可追溯历史证据保留并已降权。"
+                        >
+                          存在冲突
+                        </small>
+                      )}
+                      {citation.sourceTrustLevel === "unverified" && (
+                        <small
+                          className="citation-source-warning unverified"
+                          title="资料在生成回答时未完成来源核验。"
+                        >
+                          未核验
+                        </small>
+                      )}
                     </button>
                   ))}
                 </div>

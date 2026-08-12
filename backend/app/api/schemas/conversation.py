@@ -33,6 +33,10 @@ class CitationResponse(ApiModel):
     source_url: str | None = None
     source_validation_state: str = "not_applicable"
     source_is_approved: bool = False
+    # 引用保存生成当次的治理快照，历史回答不因资料后续调整而被静默改写。
+    source_trust_level: str = "standard"
+    governance_availability: str = "available"
+    conflict_state: str = "none"
 
 
 class ConversationResponse(ApiModel):

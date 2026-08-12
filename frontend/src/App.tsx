@@ -1149,6 +1149,9 @@ export function App() {
       sourceUrl: citation.sourceUrl,
       sourceValidationState: citation.sourceValidationState,
       sourceIsApproved: citation.sourceIsApproved,
+      sourceTrustLevel: citation.sourceTrustLevel,
+      governanceAvailability: citation.governanceAvailability,
+      conflictState: citation.conflictState,
     });
   }
 

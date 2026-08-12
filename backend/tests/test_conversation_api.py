@@ -49,6 +49,9 @@ def test_conversation_streams_grounded_answer_and_persists_citations(client: Tes
     assert [message["role"] for message in messages] == ["user", "assistant"]
     assert messages[1]["state"] == "completed"
     assert messages[1]["citations"][0]["locator"].startswith("note:")
+    assert messages[1]["citations"][0]["sourceTrustLevel"] == "standard"
+    assert messages[1]["citations"][0]["governanceAvailability"] == "available"
+    assert messages[1]["citations"][0]["conflictState"] == "none"
     assert "可追溯的原始证据" in messages[1]["content"]
 
 

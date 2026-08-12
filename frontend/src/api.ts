@@ -181,6 +181,9 @@ export type Citation = {
   sourceUrl?: string | null;
   sourceValidationState?: string;
   sourceIsApproved?: boolean;
+  sourceTrustLevel?: string;
+  governanceAvailability?: string;
+  conflictState?: string;
 };
 
 export type Conversation = {

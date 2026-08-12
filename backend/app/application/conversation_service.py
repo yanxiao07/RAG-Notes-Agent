@@ -586,6 +586,9 @@ class ConversationService:
                 "score": item.score,
                 "source_validation_state": item.source_validation_state,
                 "source_is_approved": item.source_is_approved,
+                "source_trust_level": item.source_trust_level,
+                "governance_availability": item.governance_availability,
+                "conflict_state": item.conflict_state,
             }
             if item.source_url:
                 snapshot["source_url"] = item.source_url

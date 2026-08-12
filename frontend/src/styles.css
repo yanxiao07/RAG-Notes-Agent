@@ -1818,6 +1818,14 @@ textarea:focus-visible {
   font-size: 9px;
   font-weight: 700;
 }
+.citation-source-warning.conflict {
+  background: #fff0ee;
+  color: #9d4033;
+}
+.citation-source-warning.unverified {
+  background: #eef1ef;
+  color: #65766c;
+}
 .assistant-composer {
   align-items: flex-end;
   gap: 9px;
