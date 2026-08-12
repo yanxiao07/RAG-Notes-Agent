@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -118,6 +119,49 @@ class SourceValidationService:
             approved=document.source_is_approved,
         )
         return document
+
+    def revalidate_due_documents(
+        self,
+        session: Session,
+        *,
+        workspace_id: str,
+        now: datetime | None = None,
+    ) -> int:
+        """按受控周期批量复核网页来源，返回实际领取数量。
+
+        自动任务只能判断链接是否仍可安全访问，不能据此修改可信度、冲突状态或替代关系。
+        这些业务判断仍必须由人工或经过批准的领域规则维护。
+        """
+
+        if not (
+            self.settings.source_validation_enabled
+            and self.settings.source_validation_recheck_enabled
+        ):
+            return 0
+
+        effective_now = now or utc_now()
+        ensure_workspace(session, workspace_id=workspace_id, create_default=False)
+        documents = self.document_repository.claim_due_web_source_validations(
+            session,
+            workspace_id=workspace_id,
+            validated_before=effective_now
+            - timedelta(hours=self.settings.source_validation_recheck_interval_hours),
+            claimed_at=effective_now,
+            limit=self.settings.source_validation_recheck_batch_size,
+        )
+        document_ids = [document.id for document in documents]
+        for document_id in document_ids:
+            self.validate_document(
+                session,
+                document_id=document_id,
+                workspace_id=workspace_id,
+            )
+        if document_ids:
+            logger.info(
+                "source_validation_batch_finished",
+                document_count=len(document_ids),
+            )
+        return len(document_ids)
 
     def _get_web_document(
         self, session: Session, *, document_id: str, workspace_id: str

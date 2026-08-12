@@ -71,6 +71,7 @@ RAG Notes Agent 用于把分散的文档、笔记和网页资料沉淀为可检�
 
 - **多格式解析**：支持 TXT、Markdown、Typora Markdown、PDF、DOCX 和网页 URL。Markdown 保留标题层级、表格和代码围栏，避免技术文档在切块时丢失代码语义。
 - **安全网页导入**：限制 HTTPS、重定向次数、响应体大小与超时；在抓取前验证 DNS/IP，拒绝内网地址与危险协议，降低 SSRF 风险。
+- **资料治理与来源复核**：可为资料维护可信度、生效/到期、冲突和替代关系；已替代或未来生效资料不会参与召回，过期/冲突资料降权保留溯源。网页来源可由默认关闭的独立 Worker 按低频批次复核，失效只更新来源健康状态，不删除已存档证据。
 - **去重与可恢复导入**：通过内容指纹避免重复文档反复入库；归档删除会同步清理索引，用户可以重新导入相同内容。
 - **异步入库状态机**：导入任务具备租约、指数退避、最大重试和 dead-letter 状态。Worker 中断后可回收租约，不会把同一任务并发执行。
 - **结构化切分与 Parent-Child**：子块用于精确召回，命中后补充同章节相邻上下文；回答引用始终回指实际命中的子块定位。
@@ -162,6 +163,12 @@ docker compose down
 ```
 
 `docker compose down -v` 会删除 PostgreSQL 与 Redis 的 Docker 数据卷，只应在确认不再需要本地数据时使用。
+
+如需对已导入网页进行周期性来源复核，显式启用可选 Profile；该 Worker 与入库 Worker 分离，默认不启动。它只请求到期的网页来源，复用导入期 SSRF 校验，失败不会删除正文或索引：
+
+```powershell
+docker compose --profile source-revalidation up -d source-revalidator
+```
 
 ### 方式二：本地开发
 
@@ -295,7 +302,7 @@ RAG-Notes-Agent/
 
 - 真实业务评测集、容量基线和正式质量门禁；
 - 真实 Cross-encoder、LLM Rewrite 与 GraphRAG 的 A/B 收益；
-- 知识冲突、来源优先级、有效期与 supersedes 规则；
+- 自动冲突发现、来源优先级学习、正文变更检测与真实业务有效期规则；
 - Leiden/Louvain 社区算法、社区向量索引与更细粒度的图检索评测；
 - 用户中心、完整备份策略和第三方安全审查。
 

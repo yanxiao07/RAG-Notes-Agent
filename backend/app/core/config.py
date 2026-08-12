@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     source_validation_enabled: bool = True
     source_validation_timeout_seconds: float = Field(default=10.0, ge=1.0, le=60.0)
     source_validation_approved_domains: str = ""
+    # 定时复核是独立 Worker 的低频维护任务，默认关闭，避免开发环境和未授权公网环境产生意外外连。
+    # 启用后仅检查已到复核周期的网页资料，失败只更新来源健康元数据，不影响已存档正文和检索索引。
+    source_validation_recheck_enabled: bool = False
+    source_validation_recheck_interval_hours: int = Field(default=168, ge=1, le=8_760)
+    source_validation_recheck_batch_size: int = Field(default=20, ge=1, le=200)
+    source_validation_recheck_poll_seconds: float = Field(default=300.0, ge=5.0, le=86_400.0)
     # 开发环境使用固定默认工作区；生产环境应通过 API Key 显式绑定工作区。
     default_workspace_id: str = "00000000-0000-0000-0000-000000000001"
     default_workspace_name: str = "默认工作区"

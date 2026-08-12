@@ -77,7 +77,8 @@ Route -> 定向召回(Tag/Entity) + 通用召回(Vector/FTS)
 - **Evidence Budget Builder**：生成前统一计算 Token 预算，保留证据标题、条件、步骤、代码围栏和来源；
   截断只影响发送给模型的上下文，不改写原始文档和历史引用快照。
 - **Source Validator**：URL 只能来自 Evidence 或 approved domain，异步校验响应状态、重定向和内容类型；
-  校验失败不删除原文，但回答中不得将其标记为可用来源。
+  校验失败不删除原文，但回答中不得将其标记为可用来源。可选的低频复核 Worker 独立于入库
+  Worker，按周期/批次领取到期网页资料；默认关闭，超时 pending 由下一个周期回收。
 - **Stage Events**：每个阶段只保存计数、locator、版本、耗时、错误码和哈希，禁止记录密钥、原问题和正文。
 
 Markdown 文件使用独立的 `markdown` Parser。`StructuredChunker` 只在围栏外按空行

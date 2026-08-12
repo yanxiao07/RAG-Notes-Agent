@@ -202,6 +202,22 @@ services:
       - ./artifacts/evaluations:/workspace/backend/artifacts/evaluations
     command: ["python", "-m", "app.workers.polling", "--workspace-id", "00000000-0000-0000-0000-000000000001"]
 
+  source-revalidator:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    profiles: ["source-revalidation"]
+    environment:
+      <<: *backend-environment
+      APP_SOURCE_VALIDATION_RECHECK_ENABLED: "true"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./backend/app:/workspace/backend/app
+    # 与入库 Worker 分离，网络校验不会占用文档解析与向量化吞吐。
+    command: ["python", "-m", "app.workers.source_revalidator", "--workspace-id", "00000000-0000-0000-0000-000000000001"]
+
   frontend:
     build:
       context: .

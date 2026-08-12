@@ -1,6 +1,8 @@
 """知识领域的仓储；这里只处理持久化，不包含 HTTP 或业务策略。"""
 
-from sqlalchemy import Select, func, select
+from datetime import datetime
+
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.domain.knowledge.models import (
@@ -177,6 +179,58 @@ class DocumentRepository:
             )
         )
         return items, int(total or 0)
+
+    def claim_due_web_source_validations(
+        self,
+        session: Session,
+        *,
+        workspace_id: str,
+        validated_before: datetime,
+        claimed_at: datetime,
+        limit: int,
+    ) -> list[Document]:
+        """领取到期网页来源，并在同一短事务内标记为 ``pending``。
+
+        PostgreSQL 的 ``SKIP LOCKED`` 让多个定时 Worker 不会重复领取同一资料；SQLite
+        会安全退化为普通锁语义，仅用于本地单进程开发。把 ``source_validated_at`` 写为领取
+        时刻，可避免 Worker 崩溃后资料永久停在 pending 状态，超过下一个复核周期即可重试。
+        """
+
+        statement = (
+            select(Document)
+            .where(
+                Document.workspace_id == workspace_id,
+                Document.status == "indexed",
+                Document.source_type == "webpage",
+                Document.source_url.is_not(None),
+                or_(
+                    Document.source_validated_at.is_(None),
+                    Document.source_validated_at < validated_before,
+                ),
+                # 当前周期的 pending 代表其他 Worker 已领取；超时 pending 可以被后续批次回收。
+                or_(
+                    Document.source_validation_state != "pending",
+                    Document.source_validated_at < validated_before,
+                ),
+            )
+            .order_by(
+                Document.source_validated_at.asc().nullsfirst(),
+                Document.updated_at.asc(),
+            )
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+        documents = list(session.scalars(statement))
+        for document in documents:
+            document.source_validation_state = "pending"
+            document.source_validated_at = claimed_at
+            document.source_validation_status_code = None
+            document.source_redirect_url = None
+            document.source_content_type = None
+            document.source_validation_error_code = None
+        if documents:
+            session.commit()
+        return documents
 
     def replace_chunks(
         self,

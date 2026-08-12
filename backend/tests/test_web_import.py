@@ -1,5 +1,6 @@
 """网页导入安全边界和异步入库测试。"""
 
+from datetime import timedelta
 from unittest.mock import Mock
 
 import httpx
@@ -19,6 +20,7 @@ from app.application.web_import_service import (
 )
 from app.core.config import Settings
 from app.core.errors import ProcessingError
+from app.domain.knowledge.models import utc_now
 
 
 def create_knowledge_base(client: TestClient) -> dict[str, object]:
@@ -204,3 +206,115 @@ def test_source_validation_persists_health_without_changing_index_status(
         assert updated.source_validation_state == "unavailable"
         assert updated.source_validation_status_code == 404
         assert updated.source_is_approved is True
+
+
+def test_scheduled_source_revalidation_only_claims_due_web_documents(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """定时复核只处理到期网页资料，不访问普通文档或仍在周期内的来源。"""
+
+    checked_urls: list[str] = []
+    with session_factory() as session:
+        knowledge_base = KnowledgeService().create_knowledge_base(
+            session,
+            name="来源复核资料库",
+            description=None,
+        )
+        due_document, _ = IngestionService().create_document(
+            session,
+            knowledge_base_id=knowledge_base.id,
+            title="到期网页资料",
+            source_type="webpage",
+            source_url="https://example.com/due",
+            raw_content="已存档正文。",
+        )
+        recent_document, _ = IngestionService().create_document(
+            session,
+            knowledge_base_id=knowledge_base.id,
+            title="近期网页资料",
+            source_type="webpage",
+            source_url="https://example.com/recent",
+            raw_content="已存档正文。",
+        )
+        plain_document, _ = IngestionService().create_document(
+            session,
+            knowledge_base_id=knowledge_base.id,
+            title="普通资料",
+            source_type="markdown",
+            raw_content="不应发生网络校验。",
+        )
+        now = utc_now()
+        due_document.status = "indexed"
+        due_document.source_validation_state = "valid"
+        due_document.source_validated_at = now - timedelta(hours=25)
+        recent_document.status = "indexed"
+        recent_document.source_validation_state = "valid"
+        recent_document.source_validated_at = now - timedelta(hours=2)
+        plain_document.status = "indexed"
+        session.commit()
+
+        def validator(url: str) -> WebSourceValidation:
+            checked_urls.append(url)
+            return WebSourceValidation(
+                state="valid",
+                final_url=url,
+                status_code=200,
+                content_type="text/html",
+                error_code=None,
+            )
+
+        service = SourceValidationService(
+            settings=Settings(
+                source_validation_recheck_enabled=True,
+                source_validation_recheck_interval_hours=24,
+                source_validation_recheck_batch_size=5,
+            ),
+            validator=validator,
+        )
+        claimed = service.revalidate_due_documents(
+            session,
+            workspace_id=knowledge_base.workspace_id,
+            now=now,
+        )
+
+        assert claimed == 1
+        assert checked_urls == ["https://example.com/due"]
+        assert due_document.source_validation_state == "valid"
+        assert due_document.source_validated_at is not None
+        assert recent_document.source_validation_state == "valid"
+        assert plain_document.source_validation_state == "not_applicable"
+
+
+def test_scheduled_source_revalidation_is_opt_in(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """默认关闭，避免未授权环境周期性访问外部站点。"""
+
+    with session_factory() as session:
+        knowledge_base = KnowledgeService().create_knowledge_base(
+            session,
+            name="来源复核开关",
+            description=None,
+        )
+        document, _ = IngestionService().create_document(
+            session,
+            knowledge_base_id=knowledge_base.id,
+            title="网页资料",
+            source_type="webpage",
+            source_url="https://example.com/reference",
+            raw_content="已存档正文。",
+        )
+        document.status = "indexed"
+        session.commit()
+
+        service = SourceValidationService(
+            settings=Settings(source_validation_recheck_enabled=False),
+            validator=lambda _url: pytest.fail("默认关闭时不应访问外部来源"),
+        )
+        assert (
+            service.revalidate_due_documents(
+                session,
+                workspace_id=knowledge_base.workspace_id,
+            )
+            == 0
+        )
