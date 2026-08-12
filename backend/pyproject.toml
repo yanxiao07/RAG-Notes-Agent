@@ -1,0 +1,61 @@
+[project]
+name = "rag-notes-agent-backend"
+version = "0.1.0"
+description = "RAG Notes Agent FastAPI backend"
+readme = "../README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "alembic>=1.14,<2.0",
+  "cryptography>=44.0,<46.0",
+  "fastapi>=0.115,<1.0",
+  "httpx>=0.28,<1.0",
+  "python-docx>=1.1,<2.0",
+  "python-multipart>=0.0.20,<1.0",
+  "pypdf>=5.0,<7.0",
+  "pydantic-settings>=2.6,<3.0",
+  "redis>=5.2,<7.0",
+  "sqlalchemy>=2.0,<3.0",
+  "structlog>=24.4,<26.0",
+  "uvicorn[standard]>=0.32,<1.0",
+  "opentelemetry-api>=1.28,<2",
+  "opentelemetry-sdk>=1.28,<2",
+  "opentelemetry-exporter-otlp-proto-http>=1.28,<2",
+]
+
+[project.optional-dependencies]
+agent = [
+  "langgraph>=0.2,<1.0",
+]
+dev = [
+  "pytest>=8.3,<9.0",
+  "pytest-cov>=6.0,<7.0",
+  "pyright>=1.1.390,<2.0",
+  "ruff>=0.8,<1.0",
+]
+postgres = [
+  "pgvector>=0.3,<1.0",
+  "psycopg[binary]>=3.2,<4.0",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+include = ["app", "tests"]
+# Windows 下显式指定本项目虚拟环境，避免 Pyright 误报已安装的运行时依赖缺失。
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"

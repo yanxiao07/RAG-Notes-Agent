@@ -1,0 +1,9 @@
+[
+  {
+    "id": "replace-with-stable-case-id",
+    "query": "替换为真实用户问题",
+    "expectedSourceTitles": ["替换为预期命中文档标题"],
+    "requiredKeywords": ["替换为应出现在证据中的关键词"],
+    "limit": 5
+  }
+]

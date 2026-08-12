@@ -1,0 +1,23 @@
+[
+  {
+    "id": "langgraph-overview",
+    "query": "LangGraph 的核心作用和适用场景是什么？",
+    "expectedSourceTitles": ["LangGraph.md"],
+    "requiredKeywords": ["LangGraph"],
+    "limit": 5
+  },
+  {
+    "id": "langchain-agent-middleware",
+    "query": "LangChain Agent 中间件有什么作用？",
+    "expectedSourceTitles": ["LangChain.md"],
+    "requiredKeywords": ["中间件"],
+    "limit": 5
+  },
+  {
+    "id": "langchain-tool-binding",
+    "query": "LangChain 中如何将工具绑定到模型？",
+    "expectedSourceTitles": ["LangChain.md"],
+    "requiredKeywords": ["bind_tools"],
+    "limit": 5
+  }
+]

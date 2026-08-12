@@ -1,0 +1,24 @@
+{
+  "queryCount": 37,
+  "iterations": 3,
+  "sampleCount": 111,
+  "latencyMs": {
+    "min": 145.29,
+    "mean": 151.229,
+    "p50": 150.807,
+    "p95": 156.543,
+    "max": 159.384
+  },
+  "retrievers": [
+    "postgres_pgvector_fts_rrf"
+  ],
+  "cacheBackends": [
+    "redis"
+  ],
+  "embeddingCacheHitRate": 1.0,
+  "diagnosticsMs": {
+    "retrievalMs": 143.078,
+    "rerankMs": 0.352,
+    "totalMs": 151.191
+  }
+}

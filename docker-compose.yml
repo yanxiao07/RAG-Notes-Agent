@@ -1,0 +1,224 @@
+name: rag-notes-agent
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment: &postgres-environment
+      POSTGRES_DB: ${POSTGRES_DB:-rag_notes}
+      POSTGRES_USER: ${POSTGRES_USER:-rag_notes}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rag_notes_dev_password}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-rag_notes_app}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-rag_notes_app_dev_password}
+    volumes:
+      - rag-notes-postgres:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  postgres-bootstrap:
+    image: pgvector/pgvector:pg16
+    environment:
+      <<: *postgres-environment
+      PGHOST: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:-rag_notes_dev_password}
+    volumes:
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["sh", "/docker-entrypoint-initdb.d/01-create-app-role.sh"]
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - rag-notes-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  database-maintenance:
+    image: pgvector/pgvector:pg16
+    profiles: ["maintenance"]
+    environment:
+      <<: *postgres-environment
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-rag_notes}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-rag_notes_dev_password}
+      BACKUP_FILE: ${BACKUP_FILE:-}
+      RESTORE_DATABASE: ${RESTORE_DATABASE:-}
+      RESTORE_CONFIRM: ${RESTORE_CONFIRM:-}
+    volumes:
+      - ./docker/postgres/maintenance:/maintenance:ro
+      - ./backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["sh", "/maintenance/database_maintenance.sh"]
+    command: ["backup"]
+
+  load-test:
+    image: locustio/locust:2.42.1
+    profiles: ["load-test"]
+    environment:
+      LOCUST_HOST: http://api:8000
+      # 必须由运行方提供隔离的评测知识库，禁止对默认知识库发起压测。
+      RAG_LOAD_KNOWLEDGE_BASE_ID: ${RAG_LOAD_KNOWLEDGE_BASE_ID:-}
+    volumes:
+      - ./docker/loadtest:/loadtest:ro
+      - ./backend/evaluations:/evaluations:ro
+      - ./artifacts/load-test:/artifacts
+    depends_on:
+      api:
+        condition: service_healthy
+    working_dir: /loadtest
+    command:
+      [
+        "--headless",
+        "--users", "4",
+        "--spawn-rate", "1",
+        "--run-time", "30s",
+        "--only-summary",
+        "--csv", "/artifacts/retrieval-load",
+      ]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.142.0
+    profiles: ["observability"]
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./docker/otel/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    # 仅供本 Compose 网络内 API/Worker 使用；生产环境应由独立 Collector 与访问策略承载。
+    expose:
+      - "4318"
+
+  prometheus:
+    image: prom/prometheus:v3.10.0
+    profiles: ["observability"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./docker/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus/alerts.yaml:/etc/prometheus/alerts.yaml:ro
+      - rag-notes-prometheus:/prometheus
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment: &backend-environment
+      APP_ENVIRONMENT: production
+      APP_DATABASE_URL: ${APP_DATABASE_URL:-postgresql+psycopg://rag_notes_app:rag_notes_app_dev_password@postgres:5432/rag_notes}
+      APP_REDIS_URL: ${APP_REDIS_URL:-redis://redis:6379/0}
+      APP_REDIS_KEY_PREFIX: rag-notes-agent
+      APP_CACHE_ENABLED: "true"
+      APP_RATE_LIMIT_ENABLED: "true"
+      APP_RATE_LIMIT_WINDOW_SECONDS: "60"
+      APP_RATE_LIMIT_API_REQUESTS: "1000"
+      APP_RATE_LIMIT_WRITE_REQUESTS: "240"
+      APP_RATE_LIMIT_EXPENSIVE_REQUESTS: "60"
+      APP_RATE_LIMIT_AGENT_REQUESTS: "30"
+      APP_METRICS_ENABLED: ${APP_METRICS_ENABLED:-false}
+      APP_METRICS_TOKEN: ${APP_METRICS_TOKEN:-}
+      APP_TELEMETRY_ENABLED: ${APP_TELEMETRY_ENABLED:-false}
+      APP_TELEMETRY_OTLP_ENDPOINT: ${APP_TELEMETRY_OTLP_ENDPOINT:-http://otel-collector:4318/v1/traces}
+      APP_TELEMETRY_SERVICE_NAME: ${APP_TELEMETRY_SERVICE_NAME:-rag-notes-agent}
+      APP_TELEMETRY_SAMPLE_RATIO: ${APP_TELEMETRY_SAMPLE_RATIO:-1.0}
+      APP_EMBEDDING_PROVIDER: hashing
+      APP_EMBEDDING_MODEL: hashing-256
+      APP_EMBEDDING_DIMENSIONS: "256"
+      APP_INGESTION_DISPATCH_MODE: poll
+      APP_DEFAULT_WORKSPACE_ID: 00000000-0000-0000-0000-000000000001
+      APP_DEFAULT_WORKSPACE_NAME: Docker 开发工作区
+      APP_AUTH_ENABLED: "false"
+      APP_CORS_ORIGINS: http://localhost:5173
+      APP_ALLOW_LOCAL_DEVELOPMENT_PROVIDERS: "true"
+      # 仅用于本地 Docker 验收的 Fernet 密钥；生产环境必须通过 .env/Secret 覆盖，不能复用此值。
+      APP_CONFIGURATION_ENCRYPTION_KEY: ${APP_CONFIGURATION_ENCRYPTION_KEY:-zyWJjLjBOWnkBWoUIdUsVWYuVOBmUAXJL6cTb8ZFay0=}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres-bootstrap:
+        condition: service_completed_successfully
+    # 先迁移结构，再显式初始化默认租户；脚本幂等，可安全重复启动。
+    command: ["sh", "-c", "alembic upgrade head && PYTHONPATH=/workspace/backend python scripts/bootstrap_workspace.py"]
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      <<: *backend-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app:/workspace/backend/app
+      - ./backend/migrations:/workspace/backend/migrations
+      - ./backend/scripts:/workspace/backend/scripts
+      - ./backend/evaluations:/workspace/backend/evaluations:ro
+      # 评测用例保持只读；运行报告写入独立工件目录，避免容器污染版本化基线。
+      - ./artifacts/evaluations:/workspace/backend/artifacts/evaluations
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      <<: *backend-environment
+      APP_WORKER_WORKSPACE_ID: 00000000-0000-0000-0000-000000000001
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./backend/app:/workspace/backend/app
+      - ./backend/migrations:/workspace/backend/migrations
+      - ./backend/scripts:/workspace/backend/scripts
+      - ./backend/evaluations:/workspace/backend/evaluations:ro
+      - ./artifacts/evaluations:/workspace/backend/artifacts/evaluations
+    command: ["python", "-m", "app.workers.polling", "--workspace-id", "00000000-0000-0000-0000-000000000001"]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - rag-notes-node-modules:/app/node_modules
+
+volumes:
+  rag-notes-postgres:
+  rag-notes-redis:
+  rag-notes-node-modules:
+  rag-notes-prometheus:

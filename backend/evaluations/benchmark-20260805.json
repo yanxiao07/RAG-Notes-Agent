@@ -1,0 +1,24 @@
+{
+  "queryCount": 3,
+  "iterations": 2,
+  "sampleCount": 6,
+  "latencyMs": {
+    "min": 4814.688,
+    "mean": 6785.141,
+    "p50": 5799.701,
+    "p95": 11268.45,
+    "max": 12801.095
+  },
+  "retrievers": [
+    "local_hybrid_rrf"
+  ],
+  "cacheBackends": [
+    "memory"
+  ],
+  "embeddingCacheHitRate": 1.0,
+  "diagnosticsMs": {
+    "retrievalMs": 6754.393,
+    "rerankMs": 0.0,
+    "totalMs": 6784.827
+  }
+}

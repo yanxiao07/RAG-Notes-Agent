@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+.env
+.env.*
+!.env.example
+.pytest_cache/
+.ruff_cache/
+artifacts/load-test/*.csv
+artifacts/evaluations/*.json
+coverage.xml
+htmlcov/
+*.db
+uploads/
+backups/*
+!backups/.gitkeep
+node_modules/
+dist/
+# Vite 初始化模板遗留文件，当前应用未引用。
+frontend/src/assets/hero.png

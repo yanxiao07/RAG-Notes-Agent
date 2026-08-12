@@ -1,0 +1,33 @@
+groups:
+  - name: rag-notes-agent
+    rules:
+      - alert: RagNotesHttpErrorRateHigh
+        expr: |
+          sum(rate(rag_notes_http_requests_total{status_class=~"5xx"}[5m]))
+          /
+          clamp_min(sum(rate(rag_notes_http_requests_total[5m])), 1) > 0.02
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RAG Notes Agent 5xx 比例超过 2%"
+          runbook: "检查结构化日志中的 request_id、依赖状态和 Trace 错误类型；不得从指标反查用户问题。"
+      - alert: RagNotesHttpP95LatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le, route) (rate(rag_notes_http_request_duration_seconds_bucket[5m]))
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RAG Notes Agent HTTP P95 延迟超过 2 秒"
+          runbook: "按 route 模板查看 Trace；优先确认缓存未命中、模型重试和数据库依赖，不记录请求正文。"
+      - alert: RagNotesRateLimitRejectionsHigh
+        expr: sum(rate(rag_notes_rate_limit_rejections_total[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RAG Notes Agent 持续触发限流"
+          runbook: "核对固定 scope 配额、调用端退避和 Redis 健康状态，禁止依据身份标签做告警。"

@@ -1,0 +1,13 @@
+[
+  {"id": "direct-identity", "query": "你是谁？", "expectedRoute": "direct"},
+  {"id": "direct-capability", "query": "你能做什么？", "expectedRoute": "direct"},
+  {"id": "direct-social", "query": "谢谢", "expectedRoute": "direct"},
+  {"id": "direct-operation", "query": "怎么导入文档", "expectedRoute": "direct"},
+  {"id": "direct-realtime-boundary", "query": "今天北京天气怎么样？", "expectedRoute": "direct"},
+  {"id": "memory-conversation", "query": "我刚才说的项目名称是什么？", "expectedRoute": "memory"},
+  {"id": "clarify-identity", "query": "我是谁？", "expectedRoute": "clarify"},
+  {"id": "clarify-reference", "query": "这个呢？", "expectedRoute": "clarify"},
+  {"id": "rag-fact", "query": "公司的年假有多少天？", "expectedRoute": "rag"},
+  {"id": "rag-explicit-source", "query": "文档中如何配置 Redis？", "expectedRoute": "rag"},
+  {"id": "rag-explicit-realtime-source", "query": "资料中的天气示例是什么？", "expectedRoute": "rag"}
+]
