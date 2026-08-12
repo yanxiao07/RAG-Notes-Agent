@@ -41,6 +41,9 @@ export type KnowledgeDocument = {
   sourceRedirectUrl: string | null;
   sourceContentType: string | null;
   sourceValidationErrorCode: string | null;
+  webContentState:
+    "not_applicable" | "unchanged" | "changed" | "unchecked" | string;
+  webContentCheckedAt: string | null;
   sourceTrustLevel: "verified" | "standard" | "unverified" | string;
   effectiveAt: string | null;
   expiresAt: string | null;

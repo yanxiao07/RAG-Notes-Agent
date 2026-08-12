@@ -39,6 +39,8 @@ class DocumentResponse(ApiModel):
     source_redirect_url: str | None
     source_content_type: str | None
     source_validation_error_code: str | None
+    web_content_state: str
+    web_content_checked_at: datetime | None
     source_trust_level: str
     effective_at: datetime | None
     expires_at: datetime | None

@@ -2394,6 +2394,10 @@ textarea:focus-visible {
   background: #fff0ee;
   color: #9d4033;
 }
+.source-validation-state.content-changed {
+  background: #fff0ee;
+  color: #9d4033;
+}
 .is-spinning {
   animation: source-validation-spin 0.8s linear infinite;
 }
@@ -2766,6 +2770,11 @@ textarea:focus-visible {
   color: #9d4033;
   cursor: default;
   text-decoration: none;
+}
+.document-reader-change-warning {
+  color: #984232;
+  font-size: 11px;
+  font-weight: 700;
 }
 .document-governance {
   flex: 0 0 auto;

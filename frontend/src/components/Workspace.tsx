@@ -2210,12 +2210,22 @@ export function NotesPanel({
                     ? "网页"
                     : document.sourceType}
                   {document.sourceType === "webpage" && (
-                    <small
-                      className={`source-validation-state ${document.sourceValidationState}`}
-                      title={sourceValidationTitle(document)}
-                    >
-                      {sourceValidationLabel(document)}
-                    </small>
+                    <>
+                      <small
+                        className={`source-validation-state ${document.sourceValidationState}`}
+                        title={sourceValidationTitle(document)}
+                      >
+                        {sourceValidationLabel(document)}
+                      </small>
+                      {document.webContentState === "changed" && (
+                        <small
+                          className="source-validation-state content-changed"
+                          title="外部网页正文已变化；当前仍引用已入库的历史版本，请确认后手动重新导入。"
+                        >
+                          内容已变化
+                        </small>
+                      )}
+                    </>
                   )}
                 </span>
                 <span className={`document-status ${document.status}`}>

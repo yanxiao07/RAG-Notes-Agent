@@ -2116,6 +2116,11 @@ function DocumentReaderModal({
               ? "已入库"
               : documentReaderStatusLabel(document.status)}
           </span>
+          {document.webContentState === "changed" && (
+            <span className="document-reader-change-warning">
+              网页正文已变化，当前显示的是已入库历史版本
+            </span>
+          )}
           {document.sourceUrl &&
             (document.sourceValidationState === "unavailable" ? (
               <span className="document-reader-source unavailable">

@@ -162,6 +162,13 @@ class Document(TimestampMixin, Base):
     source_redirect_url: Mapped[str | None] = mapped_column(String(2_000), nullable=True)
     source_content_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_validation_error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # 内容变更检测只比较清洗后的摘要，不保存外部新正文，也不会静默覆盖已入库版本。
+    web_content_state: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="not_applicable", index=True
+    )
+    web_content_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # 治理字段由人工或受控流程维护，不能从 URL、模型输出或文本相似度自动推断。
     source_trust_level: Mapped[str] = mapped_column(
         String(20), nullable=False, default="standard", index=True

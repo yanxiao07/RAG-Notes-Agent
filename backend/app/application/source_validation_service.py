@@ -6,23 +6,33 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.application.web_import_service import WebSourceValidation, validate_web_source
+from app.application.web_import_service import (
+    FetchedWebPage,
+    WebSourceValidation,
+    fetch_web_page,
+    validate_web_source,
+)
 from app.core.config import Settings, get_settings
 from app.core.database import SessionLocal
 from app.core.logging import get_logger
 from app.core.workspace import ensure_workspace
+from app.domain.agent.models import AuditEvent
+from app.domain.agent.repositories import AuditEventRepository
 from app.domain.knowledge.models import Document, utc_now
 from app.domain.knowledge.repositories import DocumentRepository
+from app.security.content_sanitization import sanitize_knowledge_content
 
 logger = get_logger(__name__)
 
 SourceValidator = Callable[[str], WebSourceValidation]
+WebPageFetcher = Callable[[str], FetchedWebPage]
 
 
 class SourceValidationService:
@@ -32,12 +42,15 @@ class SourceValidationService:
         self,
         *,
         validator: SourceValidator = validate_web_source,
+        page_fetcher: WebPageFetcher = fetch_web_page,
         settings: Settings | None = None,
         document_repository: DocumentRepository | None = None,
     ) -> None:
         self.validator = validator
+        self.page_fetcher = page_fetcher
         self.settings = settings or get_settings()
         self.document_repository = document_repository or DocumentRepository()
+        self.audit_repository = AuditEventRepository()
 
     def mark_pending(
         self,
@@ -151,17 +164,83 @@ class SourceValidationService:
         )
         document_ids = [document.id for document in documents]
         for document_id in document_ids:
-            self.validate_document(
+            document = self.validate_document(
                 session,
                 document_id=document_id,
                 workspace_id=workspace_id,
             )
+            if document is not None:
+                self.detect_content_change(
+                    session,
+                    document_id=document.id,
+                    workspace_id=workspace_id,
+                )
         if document_ids:
             logger.info(
                 "source_validation_batch_finished",
                 document_count=len(document_ids),
             )
         return len(document_ids)
+
+    def detect_content_change(
+        self,
+        session: Session,
+        *,
+        document_id: str,
+        workspace_id: str,
+    ) -> Document | None:
+        """检测网页正文变化，但绝不替换已入库正文、切块或向量。
+
+        内容更新通常需要领域人员判断是否适合覆盖现有知识。该检测只给出受控的 ``changed``
+        信号，用户必须在工作台显式重新导入，才会创建新的索引版本。
+        """
+
+        document = self.document_repository.get(session, document_id, workspace_id=workspace_id)
+        if (
+            document is None
+            or document.status == "archived"
+            or document.source_type != "webpage"
+            or not document.source_url
+            or document.source_validation_state != "valid"
+            or not self.settings.web_content_change_detection_enabled
+        ):
+            return document
+
+        try:
+            fetched = self.page_fetcher(document.source_url)
+            candidate_content = sanitize_knowledge_content(fetched.text).content
+            candidate_hash = hashlib.sha256(candidate_content.encode("utf-8")).hexdigest()
+        except Exception:
+            # 页面正文探测是来源健康的增强项，抓取失败不能污染连通性状态或阻断后续批次。
+            logger.exception("web_content_change_detection_failed", document_id=document_id)
+            return document
+
+        previous_state = document.web_content_state
+        document.web_content_checked_at = utc_now()
+        document.web_content_state = (
+            "unchanged" if candidate_hash == document.content_hash else "changed"
+        )
+        if document.web_content_state == "changed" and previous_state != "changed":
+            self.audit_repository.create(
+                session,
+                AuditEvent(
+                    workspace_id=workspace_id,
+                    actor_type="system",
+                    actor_id="source-revalidator",
+                    action="web_content_change_detected",
+                    target_type="document",
+                    target_id=document.id,
+                    payload={"reindexRequired": "true"},
+                ),
+            )
+        session.commit()
+        session.refresh(document)
+        logger.info(
+            "web_content_change_detection_finished",
+            document_id=document.id,
+            state=document.web_content_state,
+        )
+        return document
 
     def _get_web_document(
         self, session: Session, *, document_id: str, workspace_id: str

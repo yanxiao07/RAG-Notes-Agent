@@ -210,6 +210,8 @@ services:
     environment:
       <<: *backend-environment
       APP_SOURCE_VALIDATION_RECHECK_ENABLED: "true"
+      # 仅该可选 Profile 开启正文变化检测；默认主栈只做轻量连通性复核。
+      APP_WEB_CONTENT_CHANGE_DETECTION_ENABLED: "true"
     depends_on:
       migrate:
         condition: service_completed_successfully

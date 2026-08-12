@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     source_validation_recheck_interval_hours: int = Field(default=168, ge=1, le=8_760)
     source_validation_recheck_batch_size: int = Field(default=20, ge=1, le=200)
     source_validation_recheck_poll_seconds: float = Field(default=300.0, ge=5.0, le=86_400.0)
+    # 变更检测会额外抓取到期网页正文；默认关闭，且只写状态，绝不静默替换已入库版本。
+    web_content_change_detection_enabled: bool = False
     # 开发环境使用固定默认工作区；生产环境应通过 API Key 显式绑定工作区。
     default_workspace_id: str = "00000000-0000-0000-0000-000000000001"
     default_workspace_name: str = "默认工作区"

@@ -318,3 +318,86 @@ def test_scheduled_source_revalidation_is_opt_in(
             )
             == 0
         )
+
+
+def test_web_content_change_detection_marks_change_without_overwriting_evidence(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """检测到网页变化仅提示人工重导入，不能暗中替换正文或索引基线。"""
+
+    with session_factory() as session:
+        knowledge_base = KnowledgeService().create_knowledge_base(
+            session,
+            name="网页变更检测",
+            description=None,
+        )
+        document, _ = IngestionService().create_document(
+            session,
+            knowledge_base_id=knowledge_base.id,
+            title="外部政策",
+            source_type="webpage",
+            source_url="https://example.com/policy",
+            raw_content="旧版已存档政策正文。",
+        )
+        document.status = "indexed"
+        document.content_hash = "old-content-hash"
+        document.source_validation_state = "valid"
+        session.commit()
+
+        service = SourceValidationService(
+            settings=Settings(web_content_change_detection_enabled=True),
+            page_fetcher=lambda _url: FetchedWebPage(
+                url="https://example.com/policy",
+                title="新版外部政策",
+                text="新版网页政策正文。",
+            ),
+        )
+        updated = service.detect_content_change(
+            session,
+            document_id=document.id,
+            workspace_id=knowledge_base.workspace_id,
+        )
+
+        assert updated is not None
+        assert updated.web_content_state == "changed"
+        assert updated.web_content_checked_at is not None
+        assert updated.raw_content == "旧版已存档政策正文。"
+        assert updated.content_hash == "old-content-hash"
+        assert updated.status == "indexed"
+
+
+def test_web_content_change_detection_is_opt_in(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """未显式启用时不抓取网页正文，也不会写入变更状态。"""
+
+    with session_factory() as session:
+        knowledge_base = KnowledgeService().create_knowledge_base(
+            session,
+            name="网页变更检测开关",
+            description=None,
+        )
+        document, _ = IngestionService().create_document(
+            session,
+            knowledge_base_id=knowledge_base.id,
+            title="外部政策",
+            source_type="webpage",
+            source_url="https://example.com/policy",
+            raw_content="已存档政策正文。",
+        )
+        document.status = "indexed"
+        document.source_validation_state = "valid"
+        session.commit()
+
+        service = SourceValidationService(
+            settings=Settings(web_content_change_detection_enabled=False),
+            page_fetcher=lambda _url: pytest.fail("默认关闭时不应抓取网页正文"),
+        )
+        updated = service.detect_content_change(
+            session,
+            document_id=document.id,
+            workspace_id=knowledge_base.workspace_id,
+        )
+
+        assert updated is not None
+        assert updated.web_content_state == "unchecked"

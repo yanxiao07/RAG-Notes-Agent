@@ -128,6 +128,7 @@ class IngestionService:
             source_url=source_url,
             # 本地文件没有外部 URL；网页在完成入库后由 Worker 独立写入校验结果。
             source_validation_state="pending" if source_type == "webpage" else "not_applicable",
+            web_content_state="unchecked" if source_type == "webpage" else "not_applicable",
             raw_content=raw_content,
             content_hash=content_hash,
             status="queued",
@@ -686,6 +687,9 @@ class IngestionService:
                 job.document.title = fetched.title[:240]
                 job.document.raw_content = sanitized_content
                 job.document.content_hash = content_hash
+                # 首次入库后的正文就是当前基线，不将其误报为外部变更。
+                job.document.web_content_state = "unchanged"
+                job.document.web_content_checked_at = utc_now()
             else:
                 # 兼容旧文档和历史失败任务：Worker 执行前再次清洗，确保重试不会绕过边界。
                 job.document.raw_content = sanitize_knowledge_content(
