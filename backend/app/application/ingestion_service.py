@@ -1,7 +1,7 @@
 """文档入库用例。Worker 和命令行任务调用同一服务，保证处理语义一致。"""
 
 import hashlib
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,9 +14,16 @@ from app.application.source_validation_service import SourceValidationService
 from app.application.tag_governance_service import TagGovernanceService
 from app.application.web_import_service import fetch_web_page, normalize_web_url
 from app.core.config import get_settings
-from app.core.errors import DuplicateResourceError, ProcessingError, ResourceNotFoundError
+from app.core.errors import (
+    DuplicateResourceError,
+    ProcessingError,
+    ResourceNotFoundError,
+    VersionConflictError,
+)
 from app.core.logging import get_logger
 from app.core.workspace import ensure_workspace
+from app.domain.agent.models import AuditEvent
+from app.domain.agent.repositories import AuditEventRepository
 from app.domain.knowledge.models import (
     ChunkEmbedding,
     Document,
@@ -57,6 +64,7 @@ class IngestionService:
             raise ProcessingError(message="当前部署的入库扩展配置无效。") from exc
         self.document_repository = document_repository or DocumentRepository()
         self.job_repository = job_repository or IngestionJobRepository()
+        self.audit_repository = AuditEventRepository()
 
     def create_document(
         self,
@@ -246,6 +254,74 @@ class IngestionService:
         )
         if document is None:
             raise ResourceNotFoundError(details={"resource": "document"})
+        return document
+
+    def update_document_governance(
+        self,
+        session: Session,
+        *,
+        document_id: str,
+        source_trust_level: str,
+        effective_at: datetime | None,
+        expires_at: datetime | None,
+        conflict_state: str,
+        supersedes_document_id: str | None,
+        expected_version: int,
+        workspace_id: str | None = None,
+        actor_id: str = "workspace-user",
+    ) -> Document:
+        """更新人工治理元数据，并建立同知识库内可审计的替代链。"""
+
+        resolved_workspace_id = ensure_workspace(session, workspace_id=workspace_id).id
+        document = self.document_repository.get(
+            session, document_id, workspace_id=resolved_workspace_id
+        )
+        if document is None or document.status == "archived":
+            raise ResourceNotFoundError(details={"resource": "document"})
+        if document.governance_version != expected_version:
+            raise VersionConflictError(details={"resource": "document_governance"})
+        if effective_at and expires_at and effective_at >= expires_at:
+            raise ProcessingError(message="资料生效时间必须早于到期时间。")
+        if supersedes_document_id == document.id:
+            raise ProcessingError(message="文档不能替代自身。")
+        if supersedes_document_id:
+            predecessor = self.document_repository.get(
+                session, supersedes_document_id, workspace_id=resolved_workspace_id
+            )
+            if (
+                predecessor is None
+                or predecessor.status == "archived"
+                or predecessor.knowledge_base_id != document.knowledge_base_id
+            ):
+                raise ProcessingError(message="被替代文档必须属于当前知识库且处于活动状态。")
+
+        document.source_trust_level = source_trust_level
+        document.effective_at = effective_at
+        document.expires_at = expires_at
+        document.conflict_state = conflict_state
+        document.supersedes_document_id = supersedes_document_id
+        document.governance_version += 1
+        self.audit_repository.create(
+            session,
+            AuditEvent(
+                workspace_id=resolved_workspace_id,
+                actor_type="user",
+                actor_id=actor_id,
+                action="document_governance_updated",
+                target_type="document",
+                target_id=document.id,
+                payload={
+                    "trustLevel": source_trust_level,
+                    "conflictState": conflict_state,
+                    "hasEffectiveAt": str(effective_at is not None).lower(),
+                    "hasExpiresAt": str(expires_at is not None).lower(),
+                    "hasSupersedes": str(supersedes_document_id is not None).lower(),
+                    "governanceVersion": str(document.governance_version),
+                },
+            ),
+        )
+        session.commit()
+        session.refresh(document)
         return document
 
     def retry_document(

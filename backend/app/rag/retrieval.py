@@ -31,6 +31,9 @@ class Evidence:
     # 外部来源状态与正文证据解耦：链接失效时仍可引用已存档正文，但 UI 不会将其伪装成可访问链接。
     source_validation_state: str = "not_applicable"
     source_is_approved: bool = False
+    source_trust_level: str = "standard"
+    governance_availability: str = "available"
+    conflict_state: str = "none"
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +81,9 @@ def fuse_query_evidence(
             source_url=evidence_by_locator[locator].source_url,
             source_validation_state=evidence_by_locator[locator].source_validation_state,
             source_is_approved=evidence_by_locator[locator].source_is_approved,
+            source_trust_level=evidence_by_locator[locator].source_trust_level,
+            governance_availability=evidence_by_locator[locator].governance_availability,
+            conflict_state=evidence_by_locator[locator].conflict_state,
         )
         for locator, score in sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:limit]
     ]
@@ -399,6 +405,9 @@ class LocalHybridRetriever:
                 source_url=evidence_by_locator[locator].source_url,
                 source_validation_state=evidence_by_locator[locator].source_validation_state,
                 source_is_approved=evidence_by_locator[locator].source_is_approved,
+                source_trust_level=evidence_by_locator[locator].source_trust_level,
+                governance_availability=evidence_by_locator[locator].governance_availability,
+                conflict_state=evidence_by_locator[locator].conflict_state,
             )
             for locator, score in sorted(scores.items(), key=lambda item: (-item[1], item[0]))[
                 :limit

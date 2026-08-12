@@ -32,6 +32,9 @@ def to_evidence_response(evidence: Evidence) -> EvidenceResponse:
         source_url=evidence.source_url,
         source_validation_state=evidence.source_validation_state,
         source_is_approved=evidence.source_is_approved,
+        source_trust_level=evidence.source_trust_level,
+        governance_availability=evidence.governance_availability,
+        conflict_state=evidence.conflict_state,
     )
 
 

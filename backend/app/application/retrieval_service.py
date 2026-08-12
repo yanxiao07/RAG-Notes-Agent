@@ -14,6 +14,7 @@ from app.core.workspace import ensure_workspace
 from app.rag.answerability import RetrievalAnswerabilityGate
 from app.rag.cache import build_cache
 from app.rag.communities import CommunityRetriever
+from app.rag.document_governance import GovernanceFilterStats, apply_document_governance
 from app.rag.dynamic_top_k import DynamicTopKPolicy, DynamicTopKStats
 from app.rag.embeddings import build_embedding_provider
 from app.rag.entity_retrieval import EntityRetrievalStats, EntityRetriever
@@ -72,6 +73,11 @@ class RetrievalDiagnostics:
     answerability_gate_enabled: bool = False
     answerability_reason: str = "not_run"
     answerability_matched_signals: int = 0
+    governance_excluded_superseded: int = 0
+    governance_excluded_future_effective: int = 0
+    governance_expired_candidates: int = 0
+    governance_conflicted_candidates: int = 0
+    governance_trust_adjusted_candidates: int = 0
     query_rewrite_ms: float = 0.0
     query_variant_count: int = 1
     query_subquery_count: int = 0
@@ -135,6 +141,7 @@ class RetrievalService:
             stop_reason="not_run",
         )
         self.diagnostics = RetrievalDiagnostics()
+        self.governance_stats = GovernanceFilterStats()
 
     @property
     def retriever_name(self) -> str:
@@ -394,6 +401,11 @@ class RetrievalService:
                 )
         self.graph_stats = graph_retriever.last_stats
         self.community_stats = community_retriever.last_stats
+        evidences, self.governance_stats = apply_document_governance(
+            session,
+            evidences=evidences,
+            workspace_id=resolved_workspace_id,
+        )
         rerank_candidates = len(evidences)
         rerank_ms = 0.0
         if resolved_settings.reranker_enabled and evidences:
@@ -470,6 +482,11 @@ class RetrievalService:
             answerability_gate_enabled=resolved_settings.answerability_gate_enabled,
             answerability_reason=answerability.reason,
             answerability_matched_signals=answerability.matched_signals,
+            governance_excluded_superseded=self.governance_stats.excluded_superseded,
+            governance_excluded_future_effective=self.governance_stats.excluded_future_effective,
+            governance_expired_candidates=self.governance_stats.expired_candidates,
+            governance_conflicted_candidates=self.governance_stats.conflicted_candidates,
+            governance_trust_adjusted_candidates=self.governance_stats.trust_adjusted_candidates,
             query_rewrite_ms=round(rewrite_ms, 2),
             query_variant_count=rewrite_plan.variant_count,
             query_subquery_count=len(rewrite_plan.sub_queries),

@@ -41,6 +41,12 @@ export type KnowledgeDocument = {
   sourceRedirectUrl: string | null;
   sourceContentType: string | null;
   sourceValidationErrorCode: string | null;
+  sourceTrustLevel: "verified" | "standard" | "unverified" | string;
+  effectiveAt: string | null;
+  expiresAt: string | null;
+  conflictState: "none" | "conflicted" | string;
+  supersedesDocumentId: string | null;
+  governanceVersion: number;
   status: "queued" | "processing" | "indexed" | "failed" | "archived";
   createdAt: string;
   updatedAt: string;
@@ -106,6 +112,9 @@ export type Evidence = {
   sourceUrl?: string | null;
   sourceValidationState?: string;
   sourceIsApproved?: boolean;
+  sourceTrustLevel?: string;
+  governanceAvailability?: string;
+  conflictState?: string;
 };
 
 export type RetrievalDiagnostics = {
@@ -134,6 +143,11 @@ export type RetrievalDiagnostics = {
   dynamicTopKEstimatedTokens: number;
   dynamicTopKStopReason: string;
   dynamicTopKBoundaryScoreGap: number | null;
+  governanceExcludedSuperseded: number;
+  governanceExcludedFutureEffective: number;
+  governanceExpiredCandidates: number;
+  governanceConflictedCandidates: number;
+  governanceTrustAdjustedCandidates: number;
   queryRewriteMs: number;
   queryVariantCount: number;
   querySubqueryCount: number;
@@ -704,6 +718,21 @@ export const api = {
   archiveDocument: (documentId: string) =>
     request<KnowledgeDocument>(`/api/v1/documents/${documentId}`, {
       method: "DELETE",
+    }),
+  updateDocumentGovernance: (
+    documentId: string,
+    payload: {
+      sourceTrustLevel: "verified" | "standard" | "unverified";
+      effectiveAt?: string | null;
+      expiresAt?: string | null;
+      conflictState: "none" | "conflicted";
+      supersedesDocumentId?: string | null;
+      governanceVersion: number;
+    },
+  ) =>
+    request<KnowledgeDocument>(`/api/v1/documents/${documentId}/governance`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
     }),
   rechunkKnowledgeBase: (knowledgeBaseId: string) =>
     request<{ documentCount: number; state: "building" }>(

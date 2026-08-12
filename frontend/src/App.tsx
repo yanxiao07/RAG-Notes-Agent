@@ -1353,6 +1353,43 @@ export function App() {
     }
   }
 
+  async function handleUpdateDocumentGovernance(
+    document: KnowledgeDocument,
+    payload: {
+      sourceTrustLevel: "verified" | "standard" | "unverified";
+      effectiveAt: string | null;
+      expiresAt: string | null;
+      conflictState: "none" | "conflicted";
+      supersedesDocumentId: string | null;
+    },
+  ) {
+    if (isSaving) return;
+    setIsSaving(true);
+    try {
+      const updated = await api.updateDocumentGovernance(document.id, {
+        ...payload,
+        governanceVersion: document.governanceVersion,
+      });
+      setDocuments((items) =>
+        items.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setDocumentTarget(updated);
+      setDocumentDetail((current) =>
+        current && current.id === updated.id
+          ? { ...current, ...updated }
+          : current,
+      );
+      setNotice({ kind: "success", text: "资料治理已更新。" });
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        text: getErrorMessage(error, "资料治理更新失败。"),
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   async function waitForIngestion(jobId: string) {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const job = await api.getIngestionJob(jobId);
@@ -1721,12 +1758,15 @@ export function App() {
         <DocumentReaderModal
           document={documentTarget}
           detail={documentDetail}
+          documents={documents}
+          isSaving={isSaving}
           onClose={() => {
             documentReadRequestRef.current += 1;
             setDocumentTarget(null);
             setModalView(null);
             setDocumentDetail(null);
           }}
+          onUpdateGovernance={handleUpdateDocumentGovernance}
         />
       )}
     </main>
@@ -1992,12 +2032,71 @@ function ArchiveDocumentModal({
 function DocumentReaderModal({
   document,
   detail,
+  documents,
+  isSaving,
   onClose,
+  onUpdateGovernance,
 }: {
   document: KnowledgeDocument;
   detail: KnowledgeDocumentDetail | null;
+  documents: KnowledgeDocument[];
+  isSaving: boolean;
   onClose: () => void;
+  onUpdateGovernance: (
+    document: KnowledgeDocument,
+    payload: {
+      sourceTrustLevel: "verified" | "standard" | "unverified";
+      effectiveAt: string | null;
+      expiresAt: string | null;
+      conflictState: "none" | "conflicted";
+      supersedesDocumentId: string | null;
+    },
+  ) => void;
 }) {
+  const [isGovernanceOpen, setIsGovernanceOpen] = useState(false);
+  const [sourceTrustLevel, setSourceTrustLevel] = useState(
+    normalizeTrustLevel(document.sourceTrustLevel),
+  );
+  const [effectiveAt, setEffectiveAt] = useState(
+    toDateTimeLocalValue(document.effectiveAt),
+  );
+  const [expiresAt, setExpiresAt] = useState(
+    toDateTimeLocalValue(document.expiresAt),
+  );
+  const [conflictState, setConflictState] = useState(
+    normalizeConflictState(document.conflictState),
+  );
+  const [supersedesDocumentId, setSupersedesDocumentId] = useState(
+    document.supersedesDocumentId ?? "",
+  );
+
+  useEffect(() => {
+    setIsGovernanceOpen(false);
+    setSourceTrustLevel(normalizeTrustLevel(document.sourceTrustLevel));
+    setEffectiveAt(toDateTimeLocalValue(document.effectiveAt));
+    setExpiresAt(toDateTimeLocalValue(document.expiresAt));
+    setConflictState(normalizeConflictState(document.conflictState));
+    setSupersedesDocumentId(document.supersedesDocumentId ?? "");
+  }, [document.id]);
+
+  const eligiblePredecessors = documents.filter(
+    (candidate) =>
+      candidate.id !== document.id &&
+      candidate.knowledgeBaseId === document.knowledgeBaseId &&
+      candidate.status !== "archived",
+  );
+
+  function handleGovernanceSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onUpdateGovernance(document, {
+      sourceTrustLevel,
+      effectiveAt: toIsoTimestamp(effectiveAt),
+      expiresAt: toIsoTimestamp(expiresAt),
+      conflictState,
+      supersedesDocumentId: supersedesDocumentId || null,
+    });
+  }
+
   return (
     <Modal
       className="reader-modal"
@@ -2030,6 +2129,117 @@ function DocumentReaderModal({
               </a>
             ))}
         </div>
+        <section className="document-governance" aria-label="资料治理">
+          <div className="document-governance-summary">
+            <div>
+              <strong>资料治理</strong>
+              <span>
+                {documentTrustLabel(document.sourceTrustLevel)} ·
+                {document.effectiveAt ? " 已设生效时间" : " 即刻生效"} ·
+                {document.conflictState === "conflicted"
+                  ? " 存在冲突"
+                  : " 无冲突"}
+              </span>
+            </div>
+            <button
+              aria-expanded={isGovernanceOpen}
+              className="secondary-command governance-toggle"
+              onClick={() => setIsGovernanceOpen((open) => !open)}
+              type="button"
+            >
+              {isGovernanceOpen ? "收起" : "编辑"}
+            </button>
+          </div>
+          {isGovernanceOpen && (
+            <form
+              className="document-governance-form"
+              onSubmit={handleGovernanceSubmit}
+            >
+              <p>
+                用于调整检索证据优先级；过期或冲突资料仍保留为可追溯历史证据。
+              </p>
+              <div className="document-governance-fields">
+                <label>
+                  来源可信度
+                  <select
+                    disabled={isSaving}
+                    onChange={(event) =>
+                      setSourceTrustLevel(
+                        event.target.value as
+                          "verified" | "standard" | "unverified",
+                      )
+                    }
+                    value={sourceTrustLevel}
+                  >
+                    <option value="verified">已核验</option>
+                    <option value="standard">常规</option>
+                    <option value="unverified">未核验</option>
+                  </select>
+                </label>
+                <label>
+                  冲突状态
+                  <select
+                    disabled={isSaving}
+                    onChange={(event) =>
+                      setConflictState(
+                        event.target.value as "none" | "conflicted",
+                      )
+                    }
+                    value={conflictState}
+                  >
+                    <option value="none">无冲突</option>
+                    <option value="conflicted">存在冲突</option>
+                  </select>
+                </label>
+                <label>
+                  生效时间
+                  <input
+                    disabled={isSaving}
+                    onChange={(event) => setEffectiveAt(event.target.value)}
+                    type="datetime-local"
+                    value={effectiveAt}
+                  />
+                </label>
+                <label>
+                  到期时间
+                  <input
+                    disabled={isSaving}
+                    onChange={(event) => setExpiresAt(event.target.value)}
+                    type="datetime-local"
+                    value={expiresAt}
+                  />
+                </label>
+                <label className="document-governance-replacement">
+                  替代哪份资料
+                  <select
+                    disabled={isSaving}
+                    onChange={(event) =>
+                      setSupersedesDocumentId(event.target.value)
+                    }
+                    value={supersedesDocumentId}
+                  >
+                    <option value="">不替代其他资料</option>
+                    {eligiblePredecessors.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {candidate.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="document-governance-actions">
+                <span>版本 {document.governanceVersion}</span>
+                <button
+                  className="primary-command"
+                  disabled={isSaving}
+                  type="submit"
+                >
+                  {isSaving ? "保存中..." : "保存治理设置"}
+                </button>
+              </div>
+            </form>
+          )}
+        </section>
         {detail ? (
           <MarkdownContent
             className="document-reader-content"
@@ -2041,6 +2251,39 @@ function DocumentReaderModal({
       </div>
     </Modal>
   );
+}
+
+function normalizeTrustLevel(
+  value: KnowledgeDocument["sourceTrustLevel"],
+): "verified" | "standard" | "unverified" {
+  return value === "verified" || value === "unverified" ? value : "standard";
+}
+
+function normalizeConflictState(
+  value: KnowledgeDocument["conflictState"],
+): "none" | "conflicted" {
+  return value === "conflicted" ? "conflicted" : "none";
+}
+
+function toDateTimeLocalValue(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const timezoneOffset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 16);
+}
+
+function toIsoTimestamp(value: string) {
+  return value ? new Date(value).toISOString() : null;
+}
+
+function documentTrustLabel(value: KnowledgeDocument["sourceTrustLevel"]) {
+  const labels: Record<string, string> = {
+    verified: "已核验来源",
+    standard: "常规来源",
+    unverified: "未核验来源",
+  };
+  return labels[value] ?? "常规来源";
 }
 
 function documentReaderSourceLabel(

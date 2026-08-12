@@ -39,6 +39,12 @@ class DocumentResponse(ApiModel):
     source_redirect_url: str | None
     source_content_type: str | None
     source_validation_error_code: str | None
+    source_trust_level: str
+    effective_at: datetime | None
+    expires_at: datetime | None
+    conflict_state: str
+    supersedes_document_id: str | None
+    governance_version: int
     status: str
     created_at: datetime
     updated_at: datetime
@@ -75,6 +81,17 @@ class CreateDocumentResponse(ApiModel):
 class DocumentListResponse(ApiModel):
     items: list[DocumentResponse]
     meta: PaginationMeta
+
+
+class UpdateDocumentGovernanceRequest(ApiModel):
+    """资料时效、可信度与替代关系只接受受控枚举，避免浏览器写入任意策略状态。"""
+
+    source_trust_level: str = Field(pattern="^(verified|standard|unverified)$")
+    effective_at: datetime | None = None
+    expires_at: datetime | None = None
+    conflict_state: str = Field(pattern="^(none|conflicted)$")
+    supersedes_document_id: str | None = Field(default=None, max_length=36)
+    governance_version: int = Field(ge=1)
 
 
 class RechunkKnowledgeBaseResponse(ApiModel):

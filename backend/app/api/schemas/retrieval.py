@@ -21,6 +21,9 @@ class EvidenceResponse(ApiModel):
     source_url: str | None = None
     source_validation_state: str = "not_applicable"
     source_is_approved: bool = False
+    source_trust_level: str = "standard"
+    governance_availability: str = "available"
+    conflict_state: str = "none"
 
 
 class RetrievalDiagnosticsResponse(ApiModel):
@@ -51,6 +54,11 @@ class RetrievalDiagnosticsResponse(ApiModel):
     dynamic_top_k_estimated_tokens: int
     dynamic_top_k_stop_reason: str
     dynamic_top_k_boundary_score_gap: float | None = None
+    governance_excluded_superseded: int
+    governance_excluded_future_effective: int
+    governance_expired_candidates: int
+    governance_conflicted_candidates: int
+    governance_trust_adjusted_candidates: int
     query_rewrite_ms: float
     query_variant_count: int
     query_subquery_count: int

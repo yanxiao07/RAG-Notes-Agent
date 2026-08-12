@@ -24,6 +24,7 @@ from app.api.schemas.ingestion import (
     DocumentResponse,
     IngestionJobResponse,
     RechunkKnowledgeBaseResponse,
+    UpdateDocumentGovernanceRequest,
 )
 from app.api.schemas.knowledge import PaginationMeta
 from app.application.ingestion_service import IngestionService
@@ -279,6 +280,29 @@ def archive_document(
     document = IngestionService().archive_document(
         session,
         document_id=document_id,
+        workspace_id=workspace.workspace_id,
+    )
+    return to_document_response(document)
+
+
+@router.patch("/documents/{document_id}/governance", response_model=DocumentResponse)
+def update_document_governance(
+    document_id: str,
+    payload: UpdateDocumentGovernanceRequest,
+    session: SessionDependency,
+    workspace: WorkspaceDependency,
+) -> DocumentResponse:
+    """更新资料时效、来源可信度、冲突标记与替代关系。"""
+
+    document = IngestionService().update_document_governance(
+        session,
+        document_id=document_id,
+        source_trust_level=payload.source_trust_level,
+        effective_at=payload.effective_at,
+        expires_at=payload.expires_at,
+        conflict_state=payload.conflict_state,
+        supersedes_document_id=payload.supersedes_document_id,
+        expected_version=payload.governance_version,
         workspace_id=workspace.workspace_id,
     )
     return to_document_response(document)

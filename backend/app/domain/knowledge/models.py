@@ -162,6 +162,19 @@ class Document(TimestampMixin, Base):
     source_redirect_url: Mapped[str | None] = mapped_column(String(2_000), nullable=True)
     source_content_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source_validation_error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # 治理字段由人工或受控流程维护，不能从 URL、模型输出或文本相似度自动推断。
+    source_trust_level: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="standard", index=True
+    )
+    effective_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    conflict_state: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="none", index=True
+    )
+    supersedes_document_id: Mapped[str | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    governance_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     raw_content: Mapped[str] = mapped_column(Text, nullable=False)
     # 对解析后的标准文本计算 SHA-256；同库重复文件名或不同文件名的相同内容都会命中。
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
