@@ -95,6 +95,8 @@ def test_graph_rebuild_endpoint_returns_building_state(client: TestClient) -> No
     assert status.status_code == 200
     assert status.json()["state"] == "ready"
     assert status.json()["communityCount"] >= 1
+    assert status.json()["communityAlgorithm"] == "connected_components"
+    assert status.json()["communityAlgorithmFallback"] == 0
 
 
 def test_llm_summary_failure_falls_back_to_deterministic_summary(

@@ -6,7 +6,7 @@ from queue import Queue
 from threading import Thread
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, status
+from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -47,8 +47,6 @@ from app.domain.agent.models import AgentRun, ChangeProposal
 router = APIRouter(tags=["Agent"])
 SessionDependency = Annotated[Session, Depends(get_session)]
 SessionFactoryDependency = Annotated[sessionmaker[Session], Depends(get_session_factory)]
-ActorIdHeader = Annotated[str | None, Header(alias="X-Actor-ID")]
-ActorRoleHeader = Annotated[str | None, Header(alias="X-Actor-Role")]
 
 
 def to_run_response(run: AgentRun) -> AgentRunResponse:
@@ -394,16 +392,14 @@ def approve_proposal(
     proposal_id: str,
     session: SessionDependency,
     workspace: WorkspaceDependency,
-    actor_id: ActorIdHeader = None,
     idempotency_key: IdempotencyKeyHeader = None,
-    actor_role: ActorRoleHeader = None,
 ) -> ChangeProposalResponse | JSONResponse:
     context = begin_idempotent_request(
         session,
         workspace_id=workspace.workspace_id,
         operation_scope="agent:proposal:approve",
         idempotency_key=idempotency_key,
-        request_payload={"proposalId": proposal_id, "actorId": actor_id, "actorRole": actor_role},
+        request_payload={"proposalId": proposal_id, "actorId": workspace.actor_id},
     )
     replay = replay_response(context)
     if replay is not None:
@@ -412,8 +408,8 @@ def approve_proposal(
         proposal = AgentService().approve_proposal(
             session,
             proposal_id=proposal_id,
-            actor_id=actor_id,
-            actor_role=actor_role,
+            actor_id=workspace.actor_id,
+            actor_role=workspace.actor_role,
             workspace_id=workspace.workspace_id,
             commit=context is None,
         )
@@ -430,16 +426,14 @@ def reject_proposal(
     proposal_id: str,
     session: SessionDependency,
     workspace: WorkspaceDependency,
-    actor_id: ActorIdHeader = None,
     idempotency_key: IdempotencyKeyHeader = None,
-    actor_role: ActorRoleHeader = None,
 ) -> ChangeProposalResponse | JSONResponse:
     context = begin_idempotent_request(
         session,
         workspace_id=workspace.workspace_id,
         operation_scope="agent:proposal:reject",
         idempotency_key=idempotency_key,
-        request_payload={"proposalId": proposal_id, "actorId": actor_id, "actorRole": actor_role},
+        request_payload={"proposalId": proposal_id, "actorId": workspace.actor_id},
     )
     replay = replay_response(context)
     if replay is not None:
@@ -448,8 +442,8 @@ def reject_proposal(
         proposal = AgentService().reject_proposal(
             session,
             proposal_id=proposal_id,
-            actor_id=actor_id,
-            actor_role=actor_role,
+            actor_id=workspace.actor_id,
+            actor_role=workspace.actor_role,
             workspace_id=workspace.workspace_id,
             commit=context is None,
         )

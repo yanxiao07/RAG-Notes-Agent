@@ -26,6 +26,12 @@ dependencies = [
 agent = [
   "langgraph>=0.2,<1.0",
 ]
+judge = [
+  "deepeval>=2.0,<4.0",
+]
+graph = [
+  "networkx>=3.4,<4.0",
+]
 dev = [
   "pytest>=8.3,<9.0",
   "pytest-cov>=6.0,<7.0",

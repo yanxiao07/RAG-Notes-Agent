@@ -11,11 +11,13 @@ import hashlib
 import re
 from collections import defaultdict
 from dataclasses import dataclass
+from importlib import import_module
 from typing import TYPE_CHECKING
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.domain.knowledge.models import (
     ChunkEntityMention,
     Document,
@@ -43,6 +45,8 @@ class CommunityBuildStats:
     extractor_provider: str = "rule"
     summary_provider: str = "deterministic-community-summary"
     summary_fallback: int = 0
+    community_algorithm: str = "connected_components"
+    community_algorithm_fallback: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +57,143 @@ class CommunityDraft:
     member_entity_ids: tuple[str, ...]
     source_chunk_ids: tuple[str, ...]
     summary: str
+
+
+@dataclass(frozen=True, slots=True)
+class CommunityDetectionResult:
+    """社区发现的可审计结果，仅包含实体 ID，不携带原始正文。"""
+
+    groups: tuple[tuple[str, ...], ...]
+    algorithm: str
+    fallback: bool = False
+
+
+class CommunityDetector:
+    """社区发现算法契约，允许生产环境替换而不影响摘要和检索层。"""
+
+    name = "connected_components"
+
+    def discover(
+        self, *, entities: list[KnowledgeEntity], relations: list[KnowledgeRelation]
+    ) -> CommunityDetectionResult:
+        raise NotImplementedError
+
+
+class ConnectedComponentCommunityDetector(CommunityDetector):
+    """基线算法：按达到置信度阈值的关系构建确定性连通分量。"""
+
+    name = "connected_components"
+
+    def __init__(self, *, min_relation_confidence: float) -> None:
+        self.min_relation_confidence = min_relation_confidence
+
+    def discover(
+        self, *, entities: list[KnowledgeEntity], relations: list[KnowledgeRelation]
+    ) -> CommunityDetectionResult:
+        parent = {entity.id: entity.id for entity in entities}
+
+        def find(node: str) -> str:
+            while parent[node] != node:
+                parent[node] = parent[parent[node]]
+                node = parent[node]
+            return node
+
+        def union(left: str, right: str) -> None:
+            left_root, right_root = find(left), find(right)
+            if left_root != right_root:
+                # 使用稳定字典序作为父节点，保证相同图输入的结果不依赖关系插入顺序。
+                parent[max(left_root, right_root)] = min(left_root, right_root)
+
+        for relation in relations:
+            if (
+                relation.confidence >= self.min_relation_confidence
+                and relation.source_entity_id in parent
+                and relation.target_entity_id in parent
+            ):
+                union(relation.source_entity_id, relation.target_entity_id)
+
+        groups: dict[str, list[str]] = defaultdict(list)
+        for entity_id in parent:
+            groups[find(entity_id)].append(entity_id)
+        return CommunityDetectionResult(
+            groups=tuple(sorted(tuple(sorted(group)) for group in groups.values())),
+            algorithm=self.name,
+        )
+
+
+class LouvainCommunityDetector(CommunityDetector):
+    """可选的加权 Louvain 检测器。
+
+    NetworkX 只在明确选择该策略时导入。关系置信度累加为边权重，固定 seed 使
+    同一图输入可重复；依赖缺失或运行异常时回退到连通分量并如实标记。
+    """
+
+    name = "louvain"
+
+    def __init__(self, *, min_relation_confidence: float, resolution: float) -> None:
+        self.min_relation_confidence = min_relation_confidence
+        self.resolution = resolution
+        self.fallback_detector = ConnectedComponentCommunityDetector(
+            min_relation_confidence=min_relation_confidence
+        )
+
+    def discover(
+        self, *, entities: list[KnowledgeEntity], relations: list[KnowledgeRelation]
+    ) -> CommunityDetectionResult:
+        try:
+            networkx = import_module("networkx")
+            graph = networkx.Graph()
+            graph.add_nodes_from(entity.id for entity in entities)
+            for relation in relations:
+                if (
+                    relation.confidence < self.min_relation_confidence
+                    or relation.source_entity_id == relation.target_entity_id
+                    or relation.source_entity_id not in graph
+                    or relation.target_entity_id not in graph
+                ):
+                    continue
+                current_weight = float(
+                    graph.get_edge_data(relation.source_entity_id, relation.target_entity_id, {})
+                    .get("weight", 0.0)
+                )
+                graph.add_edge(
+                    relation.source_entity_id,
+                    relation.target_entity_id,
+                    weight=current_weight + float(relation.confidence),
+                )
+            communities = networkx.algorithms.community.louvain_communities(
+                graph,
+                weight="weight",
+                resolution=self.resolution,
+                seed=0,
+            )
+            groups = tuple(
+                sorted(tuple(sorted(str(item) for item in group)) for group in communities)
+            )
+            return CommunityDetectionResult(groups=groups, algorithm=self.name)
+        except Exception:
+            # NetworkX 版本差异、算法边界错误都不应阻断文档入库；只保留稳定回退信号。
+            fallback = self.fallback_detector.discover(entities=entities, relations=relations)
+            return CommunityDetectionResult(
+                groups=fallback.groups,
+                algorithm=fallback.algorithm,
+                fallback=True,
+            )
+
+
+def build_community_detector(
+    *, algorithm: str, min_relation_confidence: float, louvain_resolution: float
+) -> CommunityDetector:
+    """将部署配置转换为算法实例；未知配置保守回退到确定性基线。"""
+
+    if algorithm == "louvain":
+        return LouvainCommunityDetector(
+            min_relation_confidence=min_relation_confidence,
+            resolution=louvain_resolution,
+        )
+    return ConnectedComponentCommunityDetector(
+        min_relation_confidence=min_relation_confidence
+    )
 
 
 class CommunitySummaryGenerator:
@@ -139,6 +280,7 @@ class CommunitySummaryService:
         knowledge_base_id: str,
         workspace_id: str,
         summary_generator: CommunitySummaryGenerator | None = None,
+        community_detector: CommunityDetector | None = None,
         extractor_provider: str = "rule",
         extractor_version: str = "v1",
     ) -> CommunityBuildStats:
@@ -188,11 +330,19 @@ class CommunitySummaryService:
             )
         )
 
+        settings = get_settings()
+        detector = community_detector or build_community_detector(
+            algorithm=settings.graph_community_algorithm,
+            min_relation_confidence=settings.graph_community_min_relation_confidence,
+            louvain_resolution=settings.graph_community_louvain_resolution,
+        )
+        detection = detector.discover(entities=entities, relations=relations)
         drafts = self._discover_communities(
             session,
             entities=entities,
             relations=relations,
             workspace_id=workspace_id,
+            groups=detection.groups,
         )
         generator = summary_generator or DeterministicCommunitySummaryGenerator()
         fallback_count = 0
@@ -225,6 +375,8 @@ class CommunitySummaryService:
                     extractor_provider=extractor_provider,
                     extractor_version=extractor_version,
                     summary_provider=provider_name,
+                    community_algorithm=detection.algorithm,
+                    community_algorithm_fallback=detection.fallback,
                 )
             )
         knowledge_base.graph_status = "ready"
@@ -238,6 +390,8 @@ class CommunitySummaryService:
             extractor_provider=extractor_provider,
             summary_provider=generator.name,
             summary_fallback=fallback_count,
+            community_algorithm=detection.algorithm,
+            community_algorithm_fallback=detection.fallback,
         )
 
     def invalidate(self, session: Session, *, knowledge_base_id: str, workspace_id: str) -> None:
@@ -265,40 +419,27 @@ class CommunitySummaryService:
         entities: list[KnowledgeEntity],
         relations: list[KnowledgeRelation],
         workspace_id: str,
+        groups: tuple[tuple[str, ...], ...],
     ) -> list[CommunityDraft]:
-        parent = {entity.id: entity.id for entity in entities}
+        entities_by_id = {entity.id: entity for entity in entities}
+        entity_group = {
+            entity_id: group_index
+            for group_index, group in enumerate(groups)
+            for entity_id in group
+        }
+        grouped_entities = [
+            [entities_by_id[entity_id] for entity_id in group if entity_id in entities_by_id]
+            for group in groups
+        ]
 
-        def find(node: str) -> str:
-            while parent[node] != node:
-                parent[node] = parent[parent[node]]
-                node = parent[node]
-            return node
-
-        def union(left: str, right: str) -> None:
-            left_root, right_root = find(left), find(right)
-            if left_root != right_root:
-                parent[right_root] = left_root
-
+        # 关系切块同时分配给边两端的社区。Louvain 不会删除跨社区关系，保留它们
+        # 可使摘要和最终原文 Evidence 仍体现跨主题依赖。
+        relation_chunks_by_group: dict[int, set[str]] = defaultdict(set)
         for relation in relations:
-            # 共现边只用于弱连接；极低置信度边不应把整个知识库合并成一个社区。
-            if (
-                relation.confidence >= 0.40
-                and relation.source_entity_id in parent
-                and relation.target_entity_id in parent
-            ):
-                union(relation.source_entity_id, relation.target_entity_id)
-
-        groups: dict[str, list[KnowledgeEntity]] = defaultdict(list)
-        for entity in entities:
-            groups[find(entity.id)].append(entity)
-
-        # 关系证据先按并查集根节点聚合，避免为每个社区重复扫描全部关系。
-        relation_chunks_by_root: dict[str, set[str]] = defaultdict(set)
-        for relation in relations:
-            if relation.source_entity_id in parent and relation.target_entity_id in parent:
-                relation_chunks_by_root[find(relation.source_entity_id)].add(
-                    relation.document_chunk_id
-                )
+            for entity_id in (relation.source_entity_id, relation.target_entity_id):
+                group_index = entity_group.get(entity_id)
+                if group_index is not None:
+                    relation_chunks_by_group[group_index].add(relation.document_chunk_id)
 
         mention_rows = list(
             session.scalars(
@@ -312,13 +453,13 @@ class CommunitySummaryService:
             mentions_by_entity[mention.entity_id].add(mention.document_chunk_id)
 
         drafts: list[CommunityDraft] = []
-        for root, members in groups.items():
+        for group_index, members in enumerate(grouped_entities):
             members.sort(key=lambda item: (-item.mention_count, item.name.casefold()))
             member_ids = tuple(item.id for item in members)
             chunk_ids = set()
             for member in members:
                 chunk_ids.update(mentions_by_entity.get(member.id, set()))
-            chunk_ids.update(relation_chunks_by_root.get(root, set()))
+            chunk_ids.update(relation_chunks_by_group.get(group_index, set()))
             ordered_chunks = tuple(sorted(chunk_ids)[:80])
             title = "、".join(item.name[:40] for item in members[:4]) or "未命名社区"
             key = hashlib.sha256("|".join(sorted(member_ids)).encode()).hexdigest()[:32]

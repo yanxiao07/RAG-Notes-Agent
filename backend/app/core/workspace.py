@@ -28,6 +28,8 @@ class WorkspaceContext:
 
     workspace_id: str
     actor_id: str | None
+    # 角色必须来自数据库成员关系或部署侧 bootstrap 映射，绝不信任客户端自报 Header。
+    actor_role: str
 
 
 def _configured_api_keys() -> dict[str, str]:
@@ -44,13 +46,23 @@ def _configured_api_keys() -> dict[str, str]:
 
 
 def configured_actor_role(
-    *, workspace_id: str, actor_id: str | None, claimed_role: str | None = None
+    *,
+    workspace_id: str,
+    actor_id: str | None,
+    claimed_role: str | None = None,
+    trusted_role: str | None = None,
 ) -> str:
     """解析审批角色。
 
     开启认证后角色只能来自部署侧映射，不能仅凭请求头自报角色；本地开发保持 owner
     默认值，兼容不携带身份头的单工作区测试和演示。
     """
+
+    if trusted_role is not None:
+        normalized_trusted_role = trusted_role.lower()
+        if normalized_trusted_role not in {"viewer", "editor", "approver", "owner"}:
+            raise AuthorizationError(message="服务端解析的操作角色无效。")
+        return normalized_trusted_role
 
     settings = get_settings()
     mappings: dict[tuple[str, str], str] = {}
@@ -76,6 +88,14 @@ def configured_actor_role(
             raise AuthorizationError(message="操作者角色与部署侧权限不一致。")
         return configured
     return (claimed_role or configured or "owner").lower()
+
+
+def require_workspace_role(workspace: WorkspaceContext, *, minimum: str) -> None:
+    """校验已解析上下文的最小角色，集中避免各路由出现不一致的权限表。"""
+
+    levels = {"viewer": 0, "editor": 1, "approver": 2, "owner": 3}
+    if levels.get(workspace.actor_role, -1) < levels.get(minimum, 99):
+        raise AuthorizationError(message="当前角色没有执行该操作的权限。")
 
 
 def ensure_workspace(
@@ -118,6 +138,7 @@ def get_workspace_context(
     workspace_header: Annotated[str | None, Header(alias="X-Workspace-ID")] = None,
     api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
     actor_id: Annotated[str | None, Header(alias="X-Actor-ID")] = None,
+    actor_role_header: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
 ) -> WorkspaceContext:
     """解析并验证请求工作区。
 
@@ -128,17 +149,45 @@ def get_workspace_context(
     del request  # 保留 Request 参数，方便未来接入认证审计和 trace context。
     settings = get_settings()
     bindings = _configured_api_keys()
+    resolved_actor_id = actor_id
+    resolved_actor_role: str
     if settings.auth_enabled:
         if not api_key:
             raise AuthenticationError()
-        bound_workspace_id = next(
-            (
-                workspace_id
-                for workspace_id, configured_key in bindings.items()
-                if configured_key == api_key
-            ),
-            None,
-        )
+        # 数据库令牌优先，静态 Key 仅用于初始 owner 引导和旧部署平滑迁移。
+        # 延迟导入避免 core 与 application 在模块加载阶段形成循环依赖。
+        from app.application.workspace_access_service import WorkspaceAccessService
+
+        database_token = WorkspaceAccessService().resolve_access_token(session, raw_token=api_key)
+        bound_workspace_id = database_token.workspace_id if database_token is not None else None
+        if database_token is not None:
+            membership = WorkspaceAccessService().current_membership(
+                session, workspace_id=database_token.workspace_id, user_id=database_token.user_id
+            )
+            if membership is None:
+                raise AuthenticationError()
+            resolved_actor_id = database_token.user_id
+            resolved_actor_role = membership.role
+        else:
+            bound_workspace_id = next(
+                (
+                    configured_workspace_id
+                    for configured_workspace_id, configured_key in bindings.items()
+                    if configured_key == api_key
+                ),
+                None,
+            )
+            # Bootstrap Key 的角色仍由部署侧映射决定；未配置时只能作为 owner 管理初始成员。
+            if bound_workspace_id is None:
+                resolved_actor_role = "viewer"
+            elif actor_id is not None or settings.workspace_actor_roles.strip():
+                resolved_actor_role = configured_actor_role(
+                    workspace_id=bound_workspace_id,
+                    actor_id=actor_id,
+                )
+            else:
+                # 旧版单一 bootstrap Key 没有用户标识；仅用于建立首个 owner 成员。
+                resolved_actor_role = "owner"
         if bound_workspace_id is None:
             raise AuthenticationError()
         if workspace_header and workspace_header != bound_workspace_id:
@@ -146,13 +195,23 @@ def get_workspace_context(
         workspace_id = bound_workspace_id
     else:
         workspace_id = workspace_header or settings.default_workspace_id
+        resolved_actor_role = configured_actor_role(
+            workspace_id=workspace_id,
+            actor_id=actor_id,
+            # 本地无认证开发可用 Header 覆盖角色以覆盖拒绝路径；生产认证分支不会读取它。
+            claimed_role=actor_role_header,
+        )
 
     ensure_workspace(
         session,
         workspace_id=workspace_id,
         create_default=not settings.auth_enabled,
     )
-    return WorkspaceContext(workspace_id=workspace_id, actor_id=actor_id)
+    return WorkspaceContext(
+        workspace_id=workspace_id,
+        actor_id=resolved_actor_id,
+        actor_role=resolved_actor_role,
+    )
 
 
 WorkspaceDependency = Annotated[WorkspaceContext, Depends(get_workspace_context)]

@@ -372,6 +372,20 @@ def _graph_rebuild_response(
             )
             or 0
         )
+    community_algorithm_fallback = int(
+        session.scalar(
+            select(func.count())
+            .select_from(KnowledgeCommunitySummary)
+            .where(
+                KnowledgeCommunitySummary.workspace_id == knowledge_base.workspace_id,
+                KnowledgeCommunitySummary.knowledge_base_id == knowledge_base.id,
+                KnowledgeCommunitySummary.graph_revision == knowledge_base.graph_revision,
+                KnowledgeCommunitySummary.status == "active",
+                KnowledgeCommunitySummary.community_algorithm_fallback.is_(True),
+            )
+        )
+        or 0
+    )
     return GraphRebuildResponse(
         state=state or knowledge_base.graph_status,
         document_count=int(document_count or 0),
@@ -384,6 +398,10 @@ def _graph_rebuild_response(
             latest_summary.summary_provider if latest_summary else "deterministic-community-summary"
         ),
         summary_fallback=summary_fallback,
+        community_algorithm=(
+            latest_summary.community_algorithm if latest_summary else "connected_components"
+        ),
+        community_algorithm_fallback=community_algorithm_fallback,
     )
 
 

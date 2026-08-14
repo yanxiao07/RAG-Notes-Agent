@@ -1880,6 +1880,60 @@ export function ResearchPanel({
           </li>
         </ol>
       </div>
+      <div className="rag-runtime-strip" aria-label="当前检索运行信号">
+        <span
+          className={retrievalDiagnostics ? "rag-signal active" : "rag-signal"}
+        >
+          <Sparkles size={13} aria-hidden="true" />
+          <span>Query</span>
+          <strong>
+            {retrievalDiagnostics
+              ? `${retrievalDiagnostics.queryVariantCount} 路`
+              : "待运行"}
+          </strong>
+        </span>
+        <span
+          className={retrievalDiagnostics ? "rag-signal active" : "rag-signal"}
+        >
+          <ListFilter size={13} aria-hidden="true" />
+          <span>Hybrid</span>
+          <strong>
+            {retrievalDiagnostics
+              ? `${retrievalDiagnostics.keywordCandidates + retrievalDiagnostics.semanticCandidates}`
+              : "待运行"}
+          </strong>
+        </span>
+        <span
+          className={
+            retrievalDiagnostics?.graphMode !== "local"
+              ? "rag-signal active graph"
+              : "rag-signal"
+          }
+        >
+          <Network size={13} aria-hidden="true" />
+          <span>Graph</span>
+          <strong>
+            {retrievalDiagnostics?.graphMode !== "local"
+              ? `${retrievalDiagnostics?.matchedCommunities ?? 0} 社区`
+              : "按需"}
+          </strong>
+        </span>
+        <span
+          className={
+            retrievalDiagnostics ? "rag-signal active guard" : "rag-signal"
+          }
+        >
+          <ShieldCheck size={13} aria-hidden="true" />
+          <span>Grounding</span>
+          <strong>
+            {retrievalDiagnostics
+              ? retrievalDiagnostics.answerabilityReason === "empty_candidates"
+                ? "拒答"
+                : "通过"
+              : "待运行"}
+          </strong>
+        </span>
+      </div>
       {retrievalDiagnostics && (
         <RetrievalGovernanceSummary diagnostics={retrievalDiagnostics} />
       )}

@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Connection, Engine
 
@@ -48,10 +50,6 @@ REQUIRED_INDEXES = {
     "ix_document_chunks_content_fts",
     "ix_notes_content_fts",
 }
-# 与当前迁移链末端保持同步；新增迁移必须同时更新此验收契约并重跑报告。
-EXPECTED_MIGRATION_HEAD = "b9c2d7e4f1a6"
-
-
 @dataclass(frozen=True, slots=True)
 class CheckResult:
     name: str
@@ -128,12 +126,21 @@ def _schema_checks(connection: Connection) -> list[CheckResult]:
             {"missing": sorted(REQUIRED_TABLES - tables)},
         )
     ]
-    migration_head = connection.scalar(text("SELECT version_num FROM alembic_version LIMIT 1"))
+    # 直接读取仓库 migration graph，避免新增迁移后手工常量滞后造成生产验收误报。
+    # Alembic 允许分支存在多个 head，因此使用集合契约而不是只读取第一行。
+    migration_heads = {
+        str(row[0])
+        for row in connection.execute(text("SELECT version_num FROM alembic_version"))
+    }
+    expected_migration_heads = _expected_migration_heads()
     checks.append(
         CheckResult(
             "migration_head",
-            str(migration_head) == EXPECTED_MIGRATION_HEAD,
-            {"current": str(migration_head) if migration_head else None},
+            migration_heads == expected_migration_heads,
+            {
+                "current": sorted(migration_heads),
+                "expected": sorted(expected_migration_heads),
+            },
         )
     )
     extension = bool(
@@ -201,6 +208,14 @@ def _schema_checks(connection: Connection) -> list[CheckResult]:
         )
     )
     return checks
+
+
+def _expected_migration_heads() -> set[str]:
+    """读取本仓库定义的 Alembic head，避免校验脚本维护第二份版本号。"""
+
+    config = Config(str(BACKEND_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(BACKEND_ROOT / "migrations"))
+    return set(ScriptDirectory.from_config(config).get_heads())
 
 
 def _superuser_check(connection: Connection, *, allow: bool) -> CheckResult:

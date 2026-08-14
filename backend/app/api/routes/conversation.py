@@ -45,7 +45,7 @@ from app.application.feedback_service import FeedbackService
 from app.core.database import get_session
 from app.core.errors import AppError, AuthorizationError
 from app.core.logging import get_logger
-from app.core.workspace import WorkspaceDependency, configured_actor_role
+from app.core.workspace import WorkspaceDependency, require_workspace_role
 from app.domain.agent.models import (
     AnswerFeedback,
     Conversation,
@@ -85,9 +85,10 @@ def to_evaluation_case_response(case: FeedbackEvaluationCase) -> FeedbackEvaluat
 
 
 def require_triage_role(workspace: WorkspaceDependency) -> None:
-    role = configured_actor_role(workspace_id=workspace.workspace_id, actor_id=workspace.actor_id)
-    if role not in {"approver", "owner"}:
-        raise AuthorizationError(message="当前角色没有反馈分诊权限。")
+    try:
+        require_workspace_role(workspace, minimum="approver")
+    except AuthorizationError as exc:
+        raise AuthorizationError(message="当前角色没有反馈分诊权限。") from exc
 
 
 @router.post(
@@ -291,6 +292,7 @@ def create_feedback_knowledge_draft(
             title=payload.title,
             content=payload.content,
             actor_id=workspace.actor_id,
+            actor_role=workspace.actor_role,
             workspace_id=workspace.workspace_id,
             commit=context is None,
         )
@@ -329,6 +331,7 @@ def review_feedback_knowledge_draft(
             draft_id=draft_id,
             decision=payload.decision,
             actor_id=workspace.actor_id,
+            actor_role=workspace.actor_role,
             workspace_id=workspace.workspace_id,
             commit=context is None,
         )
@@ -393,6 +396,7 @@ def create_feedback_evaluation_case(
             required_keywords=payload.required_keywords,
             limit=payload.limit,
             actor_id=workspace.actor_id,
+            actor_role=workspace.actor_role,
             workspace_id=workspace.workspace_id,
             commit=context is None,
         )
@@ -431,6 +435,7 @@ def review_feedback_evaluation_case(
             case_id=case_id,
             decision=payload.decision,
             actor_id=workspace.actor_id,
+            actor_role=workspace.actor_role,
             workspace_id=workspace.workspace_id,
             commit=context is None,
         )

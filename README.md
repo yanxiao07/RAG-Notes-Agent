@@ -37,7 +37,7 @@ RAG Notes Agent 用于把分散的文档、笔记和网页资料沉淀为可检�
 | 问答路由 | `direct`、`memory`、`clarify`、`rag` 四类路由；规则优先，LLM 仅处理灰区 | 显式资料请求强制进入 RAG；低置信度与模型故障安全回退 RAG |
 | 混合召回 | PostgreSQL FTS/GIN + pgvector HNSW + 加权 RRF；实体和受控标签定向召回 | 定向路径只补充候选，通用 Hybrid 始终保留兜底 |
 | 检索增强 | 多路 Query Rewrite、Rerank 缓存与规则回退、Metadata Boost、Parent-Child、Dynamic Top-K | 原问题始终保留；策略可关闭，收益必须进入固定评测集比较 |
-| GraphRAG-lite | 实体/关系索引、一跳关系扩展、两层社区摘要、全局问题覆盖采样 | 图谱候选仍回指原始切块；无可追溯证据时不生成关系结论 |
+| GraphRAG-lite | 实体/关系索引、一跳关系扩展、两层社区摘要、可选加权 Louvain 社区发现与全局问题覆盖采样 | 图谱候选仍回指原始切块；算法实际运行值与回退状态可审计 |
 | 可信回答 | SSE 流式输出、Markdown 渲染、引用快照、证据预算、无答案拒答 | 局部问题候选完全缺少有效短语支持时清空证据，避免伪引用 |
 | Agent 治理 | LangGraph 只读检索、有限步 Agentic RAG、写操作提议审批、审计事件与回放 | 最大步数、Token 与延迟由服务端强制；写操作必须人工审批 |
 | 生产治理 | Redis 优先缓存/内存回退、模型并发闸门、超时、指数退避、Token 上限、分级限流 | 密钥只在服务端加密保存，浏览器不展示数据库连接或 API Key |
@@ -98,6 +98,7 @@ RAG Notes Agent 用于把分散的文档、笔记和网页资料沉淀为可检�
 
 - **关系问题**：针对“A 如何影响 B”“原因链是什么”等问题，从实体命中切块进行一跳关系扩展，再与 Hybrid 候选 RRF 融合。
 - **全局问题**：通过两层社区摘要识别主题，再按文档/实体覆盖采样原始切块，避免只返回语义最相似的一小段资料；最终引用仍定位到原始文档块。
+- **社区算法可演进**：默认使用确定性连通分量；Docker 镜像已包含可选的 NetworkX 依赖，可通过 `APP_GRAPH_COMMUNITY_ALGORITHM=louvain` 按关系置信度加权划分稠密子社区，固定随机种子保证可复现。依赖缺失或算法异常会明确回退并写入图谱状态，防止把配置意图伪装成实际能力。
 - **受限 Agentic RAG**：关系/全局问题可进入最多 N 步的只读再检索。每一步根据新增 locator、来源覆盖、估算 Token 和耗时判断是否继续，服务端强制最大步数、Token 和延迟预算。
 - **写操作审批**：Agent 可提出创建笔记、更新笔记、归档文档等变更，但不会直接执行。提议包含风险等级、证据快照、过期时间和版本校验，只有具备权限的角色审批后才会写入。
 
@@ -113,6 +114,7 @@ RAG Notes Agent 用于把分散的文档、笔记和网页资料沉淀为可检�
 - **阶段事件**：每次问答以 `route -> rewrite -> retrieve -> fuse -> rerank -> truncate -> answer -> judge` 固化脱敏事件，记录哈希、候选 locator、计数、耗时、缓存和错误类型，用于 badcase 归因与受控回放。
 - **策略 A/B**：`baseline / rewrite / rerank / current` 通过内存 Settings 快照运行，不会改写用户的工作区配置；报告同时记录请求策略和实际 fallback/cached 状态。
 - **离线门禁**：检索评测覆盖 Top1、Recall@K、MRR、关键词覆盖、噪声率和无答案拒答率；路由评测独立验证四类路由且不检索、不生成、不写入会话。
+- **图谱与回答补充评测**：社区索引门禁验证实体/原始切块回指、图谱版本和算法回退；DeepEval 以显式外发授权的可选离线适配器提供相关性/忠实度观察信号，永不替代确定性引用和拒答门禁。
 - **低敏观测**：Prometheus 和 OpenTelemetry 默认关闭；开启后只采集路由模板、耗时、计数、缓存状态与错误类型，禁止问题、正文、URL、工作区和密钥进入标签。
 
 ## 系统架构
@@ -240,6 +242,21 @@ uv run python scripts/run_retrieval_experiment.py `
 
 这些数据仅用于验证固定合成语料上的链路与回归门禁，不代表真实生产准确率、用户体验或通用 RAG 提升。完整方法、边界与报告见：[评测协议](docs/09-rag-evaluation-protocol.md) 与 [评测记录](docs/10-rag-evaluation-results.md)。
 
+### 模拟生产验证边界
+
+项目已在隔离 Docker 环境中对合成资料完成 PostgreSQL/pgvector、Redis、强制 RLS、社区切块回指和
+Louvain 结构模拟验证。Louvain 模拟仅证明算法依赖、加权分区、固定种子与回退契约实际可运行，不宣称
+检索质量提升；受控压测若出现冷缓存或 Query Rewrite 慢路径长尾，会被记录为风险，不能仅凭 P50/P95
+写作性能通过。
+
+```powershell
+# 验证 Docker 镜像中的加权 Louvain 实现；不读取业务文档。
+docker compose exec -T api sh -c "PYTHONPATH=/workspace/backend python scripts/verify_louvain_simulation.py --check"
+```
+
+关于合成检索评测、GraphRAG 结构门禁、RLS、可观测性模拟以及 SSO/第三方审计不能被模拟替代的原因，
+见[模拟生产验证边界](docs/16-simulated-production-validation.md)。
+
 ## 安全与可靠性
 
 - **租户隔离**：PostgreSQL 生产路径使用 workspace RLS；所有仓储查询显式携带工作区边界。
@@ -290,9 +307,13 @@ RAG-Notes-Agent/
 - [数据模型](docs/04-data-model.md)
 - [工程规范](docs/05-engineering-standards.md)
 - [交付路线图](docs/06-delivery-roadmap.md)
+- [用户中心与工作区访问管理](docs/07-workspace-access-management.md)
 - [对话式 Agentic RAG](docs/07-conversational-rag.md)
 - [RAG 质量工程](docs/08-rag-quality-engineering.md)
 - [RAG 评测协议](docs/09-rag-evaluation-protocol.md)
+- [可选 LLM 判分评测](docs/14-llm-judge-evaluation.md)
+- [GraphRAG 社区检索演进](docs/15-graph-community-retrieval.md)
+- [模拟生产验证边界](docs/16-simulated-production-validation.md)
 - [RAG 场景审查与 GraphRAG-lite](docs/12-rag-scenario-audit.md)
 - [企业级 RAG 对照审查](docs/13-rag-enterprise-gap-analysis.md)
 
@@ -303,7 +324,7 @@ RAG-Notes-Agent/
 - 真实业务评测集、容量基线和正式质量门禁；
 - 真实 Cross-encoder、LLM Rewrite 与 GraphRAG 的 A/B 收益；
 - 自动冲突发现、来源优先级学习、正文变更检测与真实业务有效期规则；
-- Leiden/Louvain 社区算法、社区向量索引与更细粒度的图检索评测；
+- 社区向量索引、Louvain/社区检索的真实业务 A/B 基准与更细粒度的图检索评测；
 - 用户中心、完整备份策略和第三方安全审查。
 
 项目坚持“先评测、后启用”的原则：未经本项目固定语料、固定模型和可复现实验验证的数字，不写作性能提升或生产能力。

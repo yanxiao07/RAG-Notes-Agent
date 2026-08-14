@@ -478,3 +478,10 @@ class KnowledgeCommunitySummary(TimestampMixin, Base):
     summary_provider: Mapped[str] = mapped_column(
         String(80), nullable=False, default="deterministic-community-summary"
     )
+    # 记录实际执行的社区算法而非期望配置，便于离线评测识别依赖缺失后的回退。
+    community_algorithm: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="connected_components"
+    )
+    community_algorithm_fallback: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )

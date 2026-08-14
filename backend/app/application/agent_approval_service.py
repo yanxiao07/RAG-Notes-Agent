@@ -339,7 +339,7 @@ class AgentApprovalService:
             configured_actor_role(
                 workspace_id=resolved_workspace_id,
                 actor_id=actor_id,
-                claimed_role=actor_role,
+                trusted_role=actor_role,
             ),
             proposal.required_role,
         )
@@ -403,7 +403,7 @@ class AgentApprovalService:
             configured_actor_role(
                 workspace_id=resolved_workspace_id,
                 actor_id=actor_id,
-                claimed_role=actor_role,
+                trusted_role=actor_role,
             ),
             proposal.required_role,
         )

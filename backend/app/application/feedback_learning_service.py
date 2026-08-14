@@ -47,11 +47,12 @@ class FeedbackLearningService:
         title: str,
         content: str,
         actor_id: str | None,
+        actor_role: str | None = None,
         workspace_id: str | None = None,
         commit: bool = True,
     ) -> FeedbackKnowledgeDraft:
         workspace = ensure_workspace(session, workspace_id=workspace_id)
-        self._require_reviewer(workspace.id, actor_id)
+        self._require_reviewer(workspace.id, actor_id, actor_role)
         triage = self._get_eligible_triage(
             session,
             triage_id=feedback_triage_id,
@@ -91,11 +92,12 @@ class FeedbackLearningService:
         draft_id: str,
         decision: str,
         actor_id: str | None,
+        actor_role: str | None = None,
         workspace_id: str | None = None,
         commit: bool = True,
     ) -> FeedbackKnowledgeDraft:
         workspace = ensure_workspace(session, workspace_id=workspace_id)
-        self._require_reviewer(workspace.id, actor_id)
+        self._require_reviewer(workspace.id, actor_id, actor_role)
         if decision not in {"approved", "rejected"}:
             raise ProcessingError(message="草稿审核决定不受支持。")
         draft = self.knowledge_drafts.get_for_update(
@@ -159,11 +161,12 @@ class FeedbackLearningService:
         required_keywords: list[str],
         limit: int,
         actor_id: str | None,
+        actor_role: str | None = None,
         workspace_id: str | None = None,
         commit: bool = True,
     ) -> FeedbackEvaluationCase:
         workspace = ensure_workspace(session, workspace_id=workspace_id)
-        self._require_reviewer(workspace.id, actor_id)
+        self._require_reviewer(workspace.id, actor_id, actor_role)
         triage = self._get_eligible_triage(
             session,
             triage_id=feedback_triage_id,
@@ -209,11 +212,12 @@ class FeedbackLearningService:
         case_id: str,
         decision: str,
         actor_id: str | None,
+        actor_role: str | None = None,
         workspace_id: str | None = None,
         commit: bool = True,
     ) -> FeedbackEvaluationCase:
         workspace = ensure_workspace(session, workspace_id=workspace_id)
-        self._require_reviewer(workspace.id, actor_id)
+        self._require_reviewer(workspace.id, actor_id, actor_role)
         if decision not in {"approved", "rejected"}:
             raise ProcessingError(message="评测用例审核决定不受支持。")
         case = self.evaluation_cases.get_for_update(
@@ -280,8 +284,12 @@ class FeedbackLearningService:
             raise ProcessingError(message="草稿状态不受支持。")
 
     @staticmethod
-    def _require_reviewer(workspace_id: str, actor_id: str | None) -> None:
-        role = configured_actor_role(workspace_id=workspace_id, actor_id=actor_id)
+    def _require_reviewer(
+        workspace_id: str, actor_id: str | None, actor_role: str | None = None
+    ) -> None:
+        role = configured_actor_role(
+            workspace_id=workspace_id, actor_id=actor_id, trusted_role=actor_role
+        )
         if role not in {"approver", "owner"}:
             raise AuthorizationError(message="当前角色没有反馈回流审批权限。")
 

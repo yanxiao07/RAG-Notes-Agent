@@ -99,6 +99,8 @@ class GraphRebuildResponse(ApiModel):
     extractor_provider: str
     summary_provider: str
     summary_fallback: int
+    community_algorithm: str
+    community_algorithm_fallback: int
 
 
 class ExtensionDescriptorResponse(ApiModel):

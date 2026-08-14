@@ -110,9 +110,32 @@ PostgreSQL/pgvector 生产性能。
 ## 2026-08-06：Docker PostgreSQL/pgvector 验收基线
 
 环境为 Docker Compose 的 PostgreSQL 16 + pgvector、Redis 7、Hashing Embedding 和非
-superuser 应用角色 `rag_notes_app`。已通过 `verify_postgres.py`：迁移头为
+superuser 应用角色 `rag_notes_app`。已通过 `verify_postgres.py`：当时迁移头为
 `b9c2d7e4f1a6`，pgvector 扩展、HNSW/GIN 索引、原生向量列、所有强制 RLS 策略、跨工作区
 隔离和无上下文拒绝均通过；`backfill_pgvector.py --dry-run` 待回填 chunk/note 向量均为 0。
+
+后续迁移推进后，验收脚本已改为动态读取仓库 Alembic head，不再维护易过期的版本常量；每次
+Docker 验收均要求数据库版本集合与当前 migration graph 一致。
+
+## 2026-08-14：生产链路回归验收
+
+在 Docker Compose 隔离环境中使用非 superuser 应用角色重新执行 `verify_postgres.py`：数据库
+迁移版本集合与仓库当前 Alembic head `c2d3e4f5a6b7` 一致，pgvector、HNSW/GIN、强制 RLS、
+工作区可见性、跨工作区隐藏和无上下文拒绝均通过。验收脚本改为动态解析 migration graph，后续
+新增迁移不会因为遗漏手工版本常量而产生误报。
+
+同一环境对已有合成企业资料执行 `evaluate_graph_communities.py --check`，社区成员实体与
+`source_chunk_ids` 均可回指当前图谱版本的原始切块，结构化门禁通过。该结果只证明图谱索引
+的完整性、租户边界和回退链路可运行，**不表示** Louvain、社区检索或 GraphRAG 已在真实业务
+数据上获得质量提升；相关指标仍须在授权、脱敏并经人工标注的评测集上以 A/B 实验产生。
+
+同日 Docker 交付镜像执行 `verify_louvain_simulation.py --check`：在固定的双团簇弱桥接模拟图中，
+连通分量得到 1 个六实体组，实际加权 Louvain 得到 2 个三实体组，未触发依赖/算法回退。该结果仅验证
+NetworkX 依赖、加权分区、固定种子和回退审计确实被打包并可执行；它不是检索 A/B，也没有质量门禁资格。
+
+OTLP Collector 演练中临时启用 Trace 后，debug exporter 接收 1 个受控健康检查 span；演练完成即恢复
+API/Worker 的默认关闭状态。受控 Locust 复跑在 120 秒预算内未形成完整新 CSV，按风险复现记录，
+不更新既有吞吐或延迟基线。
 
 基准使用 1 个临时知识库、1 条已索引笔记、2 条查询、预热 1 轮、正式 3 轮，共 6 个样本：
 

@@ -16,14 +16,14 @@ WORKDIR /workspace
 COPY README.md ./README.md
 COPY backend/pyproject.toml backend/uv.lock ./backend/
 WORKDIR /workspace/backend
-RUN uv sync --frozen --extra postgres --extra agent --no-dev --no-install-project
+RUN uv sync --frozen --extra postgres --extra agent --extra graph --no-dev --no-install-project
 
 COPY backend/app ./app
 COPY backend/migrations ./migrations
 COPY backend/scripts ./scripts
 COPY backend/evaluations ./evaluations
 COPY backend/alembic.ini ./alembic.ini
-RUN uv sync --frozen --extra postgres --extra agent --no-dev
+RUN uv sync --frozen --extra postgres --extra agent --extra graph --no-dev
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

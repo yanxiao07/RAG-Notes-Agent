@@ -91,13 +91,13 @@
 - [x] 多工具只读 Agent 工作流（`knowledge_search`、`knowledge_catalog`）与统一输入契约。
 - [x] 统一 ChangeProposal action registry 与审批执行器；Runtime 写工具统一暂停并支持 approve/reject 幂等流转。
 - [x] 扩展 `update_note`、`archive_document` 写动作，并在审批时校验版本、工作区和知识库边界。
-- [x] 为 Proposal 增加风险等级、证据快照、过期时间和细粒度角色权限策略；生产角色由 `APP_WORKSPACE_ACTOR_ROLES` 映射决定。
+- [x] 为 Proposal 增加风险等级、证据快照、过期时间和细粒度角色权限策略；生产角色优先由数据库成员关系解析，部署映射仅保留 bootstrap 兼容路径。
 - [x] 变更提议、审批执行和审计事件。
 - [x] SSE 流、模型 Provider、对话状态持久化与证据引用问答。
 - [x] GraphRAG-lite 实体/关系索引：入库时建立实体、关系和切块关联，关系问题一跳扩展并与 Hybrid RRF 合并。
 - [x] 全局问题覆盖采样：按文档和高频实体选择代表证据，所有结果仍回指原始切块。
 - [x] 实体/关系图谱的可选 LLM 抽取、版本化社区摘要与两层社区检索，支持局部/全局问答；模型失败自动回退规则抽取和确定性摘要。
-- [ ] 生产级社区算法（Leiden/Louvain）、社区向量索引和离线质量门禁；需在真实 PostgreSQL/模型环境基准验证后启用。
+- [~] 生产级社区算法、社区向量索引和离线质量门禁：已提供可选加权 Louvain 社区发现、固定随机种子与实际算法/回退审计；社区向量索引及其真实 PostgreSQL/模型环境质量基准仍需在已授权业务评测集上验证后启用。
 - [x] Bounded Agentic RAG：关系/全局问题按确定性结构化 Planner 进入最多 N 步只读再检索；
   每步依据 locator 增量、来源覆盖、估算 Token 和总耗时进行充分性判断。步数/Token/延迟预算由服务端
   强制，预算耗尽时停止且输出稳定原因；普通本地问题及写工具保留单步和审批路径。
@@ -114,8 +114,8 @@
 
 - [x] Docker Compose 开发/验收栈：PostgreSQL/pgvector、Redis、迁移、FastAPI、轮询 Worker 和 React。
 - [x] 模型调用并发闸门、超时边界、指数退避重试和输出 Token 上限；Query Rewrite、Embedding、Rerank、Graph 抽取和问答流共用治理策略。
-- [ ] CI、备份、限流和完整用户中心鉴权。
-  已添加基础 CI 质量工作流（后端测试/Ruff/Pyright、前端格式与构建、评测脚本语法检查）；备份、限流和用户中心鉴权仍需独立生产阶段实现。
+- [~] CI、备份、限流和完整用户中心鉴权。
+  已添加基础 CI 质量工作流（后端测试/Ruff/Pyright、前端格式与构建、评测脚本语法检查）、备份与分级限流；本阶段已完成数据库化成员、角色与可撤销访问令牌基础，但密码登录、SSO、邀请和组织目录同步仍需独立生产阶段实现。
 - [x] 入库任务租约、指数退避、死信状态和 Worker 崩溃回收。
 - [x] API 分级限流：按认证工作区或匿名 IP 的哈希身份执行固定窗口配额，区分普通读取、写入、
   高成本生成和 Agent 研究请求；Redis 原子计数不可用时回退进程内桶，429 提供 `Retry-After` 与请求 ID。
@@ -124,4 +124,4 @@
 - [x] PostgreSQL 归档备份与非破坏性恢复演练：维护容器使用 custom-format `pg_dump`、归档 TOC 校验与
   SHA-256；默认拒绝覆盖，恢复仅允许新建受限名称的演练库并要求同名显式确认，不允许覆盖源库。
 - [~] OpenTelemetry Trace、告警规则、评测回归与完整安全审查：已提供默认关闭且脱敏的 OTLP HTTP/检索/模型调用 Trace、Collector profile、Prometheus 告警规则和评测工件原子写入；生产 Trace 后端接入、真实业务回归基线与完整第三方安全审查仍未完成。
-- [ ] 可选 DeepEval 评估适配器；确定性引用、拒答和安全门禁仍作为主门禁。
+- [x] 可选 DeepEval 评估适配器：显式外发授权、动态可选依赖、脱敏结果工件和稳定 skipped/failed 状态；确定性引用、拒答和安全门禁仍作为主门禁，LLM 判分不参与默认 CI 放行。

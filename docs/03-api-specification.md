@@ -38,6 +38,11 @@
 | --- | --- | --- |
 | GET | `/health` | 存活检查 |
 | GET | `/api/v1/workspace` | 查询当前请求工作区 |
+| GET | `/api/v1/workspace/identity` | 查询服务端解析出的工作区、用户主体和角色 |
+| GET/POST | `/api/v1/workspace/members` | owner 查询或创建当前工作区成员 |
+| PATCH | `/api/v1/workspace/members/{userId}` | owner 修改成员角色或启用状态 |
+| GET/POST | `/api/v1/workspace/access-tokens` | owner 查询令牌元数据或创建仅展示一次的令牌 |
+| DELETE | `/api/v1/workspace/access-tokens/{tokenId}` | owner 撤销访问令牌 |
 | POST | `/api/v1/knowledge-bases` | 创建知识库 |
 | GET | `/api/v1/knowledge-bases` | 分页查询知识库 |
 | GET | `/api/v1/knowledge-bases/{id}` | 获取知识库 |
@@ -127,8 +132,8 @@
 网页文档和引用快照额外返回 `sourceValidationState`、`sourceIsApproved`；文档详情还返回
 脱敏的 `sourceValidationStatusCode`、`sourceRedirectUrl`、`sourceContentType` 和
 `sourceValidationErrorCode`。来源不可用不会删除已入库正文，但客户端不得将其显示为可打开链接。
-开启认证后，审批角色由部署侧 `APP_WORKSPACE_ACTOR_ROLES` 映射决定；`X-Actor-Role` 仅用于
-兼容本地开发，不能覆盖生产映射。过期提议返回 `410 PROPOSAL_EXPIRED`。
+开启认证后，数据库访问令牌从 active 成员关系解析主体和角色，并优先于部署侧
+`APP_WORKSPACE_API_KEYS` bootstrap 映射；`X-Actor-Role` 仅用于未开启认证的本地开发，不能覆盖生产身份。过期提议返回 `410 PROPOSAL_EXPIRED`。
 
 ## 4. 第一阶段示例
 

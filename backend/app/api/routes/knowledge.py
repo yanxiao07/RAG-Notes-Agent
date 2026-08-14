@@ -36,7 +36,7 @@ from app.application.knowledge_service import KnowledgeService
 from app.application.tag_governance_service import TagGovernanceService
 from app.core.database import get_session
 from app.core.errors import AuthorizationError
-from app.core.workspace import WorkspaceDependency, configured_actor_role
+from app.core.workspace import WorkspaceDependency, require_workspace_role
 from app.domain.knowledge.models import KnowledgeBase, KnowledgeTag, KnowledgeTagAssignment, Note
 
 router = APIRouter(tags=["Knowledge"])
@@ -77,13 +77,10 @@ def to_tag_assignment_response(
 
 
 def require_tag_role(workspace: WorkspaceDependency, *, minimum: str) -> None:
-    levels = {"viewer": 0, "editor": 1, "approver": 2, "owner": 3}
-    role = configured_actor_role(
-        workspace_id=workspace.workspace_id,
-        actor_id=workspace.actor_id,
-    )
-    if levels.get(role, -1) < levels[minimum]:
-        raise AuthorizationError(message="当前角色没有标签治理权限")
+    try:
+        require_workspace_role(workspace, minimum=minimum)
+    except AuthorizationError as exc:
+        raise AuthorizationError(message="当前角色没有标签治理权限") from exc
 
 
 @router.post(

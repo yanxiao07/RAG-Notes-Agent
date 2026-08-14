@@ -146,6 +146,9 @@ export type RetrievalDiagnostics = {
   dynamicTopKEstimatedTokens: number;
   dynamicTopKStopReason: string;
   dynamicTopKBoundaryScoreGap: number | null;
+  answerabilityGateEnabled: boolean;
+  answerabilityReason: string;
+  answerabilityMatchedSignals: number;
   governanceExcludedSuperseded: number;
   governanceExcludedFutureEffective: number;
   governanceExpiredCandidates: number;
@@ -902,6 +905,8 @@ export const api = {
       extractorProvider: string;
       summaryProvider: string;
       summaryFallback: number;
+      communityAlgorithm: string;
+      communityAlgorithmFallback: number;
     }>(`/api/v1/knowledge-bases/${knowledgeBaseId}/graph/rebuild`, {
       method: "POST",
     }),
@@ -916,6 +921,8 @@ export const api = {
       extractorProvider: string;
       summaryProvider: string;
       summaryFallback: number;
+      communityAlgorithm: string;
+      communityAlgorithmFallback: number;
     }>(`/api/v1/knowledge-bases/${knowledgeBaseId}/graph/status`),
   listMindMaps: (knowledgeBaseId: string) =>
     request<{ items: KnowledgeMindMap[] }>(

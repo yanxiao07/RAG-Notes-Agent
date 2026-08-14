@@ -5,6 +5,9 @@
 | 表 | 核心字段 | 说明 |
 | --- | --- | --- |
 | `workspaces` | id, name, status | 多租户隔离根；MVP 自动建立默认工作区 |
+| `users` | id, email, display_name, status | 最小身份档案，规范化邮箱唯一；不承载密码或第三方身份凭据 |
+| `workspace_memberships` | workspace_id, user_id, role, state | 用户在工作区内的授权关系；PostgreSQL 启用 FORCE RLS |
+| `workspace_access_tokens` | workspace_id, user_id, label, token_hash, state, expires_at | 访问令牌仅存 SHA-256 哈希；认证引导阶段不启用 RLS |
 | `knowledge_bases` | id, workspace_id, name, description, status | 知识边界与检索配置归属 |
 | `notes` | id, knowledge_base_id, title, content, version, status | Markdown 笔记，支持乐观锁 |
 | `documents` | id, knowledge_base_id, source_type, source_url, source_validation_state, status | 原始资产、外部来源健康状态和处理状态 |

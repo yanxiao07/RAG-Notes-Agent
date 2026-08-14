@@ -122,6 +122,11 @@ class Settings(BaseSettings):
     graph_llm_extraction_enabled: bool = False
     graph_llm_extraction_timeout_seconds: float = Field(default=20.0, ge=2.0, le=120.0)
     graph_llm_extraction_max_chars: int = Field(default=6_000, ge=500, le=20_000)
+    # 社区发现默认保持确定性连通分量。生产可显式切换 Louvain，但依赖缺失或算法失败时
+    # 必须回退并在图谱状态中暴露，不能将回退结果误标为生产图谱算法。
+    graph_community_algorithm: str = "connected_components"
+    graph_community_louvain_resolution: float = Field(default=1.0, ge=0.1, le=5.0)
+    graph_community_min_relation_confidence: float = Field(default=0.40, ge=0.0, le=1.0)
     # 元数据只做轻量排序加权，不改变工作区边界；权重纳入评测以避免暗中掩盖召回退化。
     metadata_boost_enabled: bool = True
     metadata_title_boost: float = Field(default=0.12, ge=0.0, le=1.0)
