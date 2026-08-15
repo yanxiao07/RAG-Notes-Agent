@@ -142,6 +142,23 @@ flowchart LR
 
 ## 快速开始
 
+### 方式零：下载 ZIP 一键启动（Windows）
+
+在 GitHub 的 **Releases** 下载 `RAG-Notes-Agent-v*.zip`，或使用仓库页面的 **Code -> Download ZIP**。
+解压后双击根目录的 `Start-RAG-Notes-Agent.bat`：脚本会检查 Docker Desktop、在需要时启动它，执行
+`docker compose up -d --build`，等待 API 健康检查通过后自动打开 `http://127.0.0.1:5173`。
+
+首次启动需要拉取基础镜像和构建前后端，耗时取决于网络与设备。该方式不需要在宿主机安装 Python、Node.js、
+PostgreSQL 或 Redis，但仍需要已安装 Docker Desktop。解压 ZIP 不会被系统静默执行程序，用户必须双击一次
+启动脚本，这是 Windows 的安全限制。
+
+停止时双击 `Stop-RAG-Notes-Agent.bat`，它只停止本项目容器并保留 PostgreSQL、Redis 卷；重新双击启动脚本
+即可继续使用原有本地数据。维护者可运行以下命令生成与 GitHub Release 相同结构的干净源码包：
+
+```powershell
+.\scripts\package-release.ps1 -Version v0.1.0
+```
+
 ### 方式一：Docker Compose（推荐）
 
 仅需安装 Docker Desktop，无需在宿主机安装 PostgreSQL、Redis、Python 或 Node.js。
