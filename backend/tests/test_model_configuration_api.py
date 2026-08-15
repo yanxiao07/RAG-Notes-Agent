@@ -80,6 +80,43 @@ def test_saving_secret_requires_encryption_key(
         get_settings.cache_clear()
 
 
+def test_model_configuration_allows_saving_only_llm(
+    client: TestClient,
+    session_factory: sessionmaker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """单独配置问答模型时，不应校验或覆盖其他模型组。"""
+
+    encryption_key = Fernet.generate_key().decode()
+    monkeypatch.setenv("APP_CONFIGURATION_ENCRYPTION_KEY", encryption_key)
+    get_settings.cache_clear()
+    try:
+        response = client.put(
+            "/api/v1/runtime/model-configuration",
+            json={
+                "llmProvider": "openai_compatible",
+                "llmModel": "gpt-4.1-mini",
+                "llmBaseUrl": "https://models.example.com/v1",
+                "llmApiKey": "llm-only-secret",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["llmProvider"] == "openai_compatible"
+        assert body["hasLlmApiKey"] is True
+        assert body["embeddingProvider"] == "hashing"
+        assert body["rerankerProvider"] == "rule"
+        assert body["embeddingRevision"] == 1
+
+        with session_factory() as session:
+            stored = session.query(WorkspaceModelConfiguration).one()
+            assert stored.embedding_provider == "hashing"
+            assert stored.reranker_provider == "rule"
+            assert stored.embedding_revision == 1
+    finally:
+        get_settings.cache_clear()
+
+
 def test_model_configuration_is_isolated_by_workspace(
     client: TestClient,
     session_factory: sessionmaker,

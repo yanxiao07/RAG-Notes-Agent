@@ -480,31 +480,87 @@ export function App() {
     // 异步请求返回后 SyntheticEvent 的 currentTarget 可能已失效，先保存表单引用。
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
+    if (!modelConfiguration) {
+      setNotice({ kind: "error", text: "模型配置尚未加载完成，请稍后重试。" });
+      return;
+    }
     const llmApiKey = String(form.get("llmApiKey") ?? "").trim();
     const embeddingApiKey = String(form.get("embeddingApiKey") ?? "").trim();
     const rerankerApiKey = String(form.get("rerankerApiKey") ?? "").trim();
+    const llmProvider = String(form.get("llmProvider") ?? "").trim();
+    const llmModel = String(form.get("llmModel") ?? "").trim();
+    const llmBaseUrl = String(form.get("llmBaseUrl") ?? "").trim();
+    const embeddingProvider = String(form.get("embeddingProvider") ?? "").trim();
+    const embeddingModel = String(form.get("embeddingModel") ?? "").trim();
+    const embeddingBaseUrl = String(form.get("embeddingBaseUrl") ?? "").trim();
     const embeddingDimensions = Number(form.get("embeddingDimensions"));
-    const payload: UpdateWorkspaceModelConfiguration = {
-      llmProvider: String(form.get("llmProvider") ?? "").trim(),
-      llmModel: String(form.get("llmModel") ?? "").trim(),
-      llmBaseUrl: String(form.get("llmBaseUrl") ?? "").trim(),
-      clearLlmApiKey: form.get("clearLlmApiKey") === "on",
-      embeddingProvider: String(form.get("embeddingProvider") ?? "").trim(),
-      embeddingModel: String(form.get("embeddingModel") ?? "").trim(),
-      embeddingBaseUrl: String(form.get("embeddingBaseUrl") ?? "").trim(),
-      clearEmbeddingApiKey: form.get("clearEmbeddingApiKey") === "on",
-      embeddingDimensions,
-      useQueryRewrite: form.get("useQueryRewrite") === "on",
-      useQueryRouter: form.get("useQueryRouter") === "on",
-      useReranker: form.get("useReranker") === "on",
-      rerankerProvider: String(form.get("rerankerProvider") ?? "rule").trim(),
-      rerankerModel: String(form.get("rerankerModel") ?? "").trim(),
-      rerankerBaseUrl: String(form.get("rerankerBaseUrl") ?? "").trim(),
-      clearRerankerApiKey: form.get("clearRerankerApiKey") === "on",
-    };
-    if (llmApiKey) payload.llmApiKey = llmApiKey;
-    if (embeddingApiKey) payload.embeddingApiKey = embeddingApiKey;
-    if (rerankerApiKey) payload.rerankerApiKey = rerankerApiKey;
+    const rerankerProvider = String(form.get("rerankerProvider") ?? "rule").trim();
+    const rerankerModel = String(form.get("rerankerModel") ?? "").trim();
+    const rerankerBaseUrl = String(form.get("rerankerBaseUrl") ?? "").trim();
+    const useQueryRewrite = form.get("useQueryRewrite") === "on";
+    const useQueryRouter = form.get("useQueryRouter") === "on";
+    const useReranker = form.get("useReranker") === "on";
+    const clearLlmApiKey = form.get("clearLlmApiKey") === "on";
+    const clearEmbeddingApiKey = form.get("clearEmbeddingApiKey") === "on";
+    const clearRerankerApiKey = form.get("clearRerankerApiKey") === "on";
+    const payload: UpdateWorkspaceModelConfiguration = {};
+
+    // 表单由三个独立模型组组成，只提交用户实际改动的组，避免空配置影响其他 Provider。
+    const llmChanged =
+      llmProvider !== modelConfiguration.llmProvider ||
+      llmModel !== modelConfiguration.llmModel ||
+      llmBaseUrl !== modelConfiguration.llmBaseUrl ||
+      Boolean(llmApiKey) ||
+      clearLlmApiKey;
+    if (llmChanged) {
+      Object.assign(payload, { llmProvider, llmModel, llmBaseUrl });
+      if (llmApiKey) payload.llmApiKey = llmApiKey;
+      if (clearLlmApiKey) payload.clearLlmApiKey = true;
+    }
+    if (useQueryRewrite !== modelConfiguration.useQueryRewrite) {
+      payload.useQueryRewrite = useQueryRewrite;
+    }
+    if (useQueryRouter !== modelConfiguration.useQueryRouter) {
+      payload.useQueryRouter = useQueryRouter;
+    }
+
+    const embeddingChanged =
+      embeddingProvider !== modelConfiguration.embeddingProvider ||
+      embeddingModel !== modelConfiguration.embeddingModel ||
+      embeddingBaseUrl !== modelConfiguration.embeddingBaseUrl ||
+      embeddingDimensions !== modelConfiguration.embeddingDimensions ||
+      Boolean(embeddingApiKey) ||
+      clearEmbeddingApiKey;
+    if (embeddingChanged) {
+      Object.assign(payload, {
+        embeddingProvider,
+        embeddingModel,
+        embeddingBaseUrl,
+        embeddingDimensions,
+      });
+      if (embeddingApiKey) payload.embeddingApiKey = embeddingApiKey;
+      if (clearEmbeddingApiKey) payload.clearEmbeddingApiKey = true;
+    }
+
+    const rerankerChanged =
+      rerankerProvider !== modelConfiguration.rerankerProvider ||
+      rerankerModel !== modelConfiguration.rerankerModel ||
+      rerankerBaseUrl !== modelConfiguration.rerankerBaseUrl ||
+      useReranker !== modelConfiguration.useReranker ||
+      Boolean(rerankerApiKey) ||
+      clearRerankerApiKey;
+    if (rerankerChanged) {
+      Object.assign(payload, { rerankerProvider, rerankerModel, rerankerBaseUrl });
+      if (useReranker !== modelConfiguration.useReranker) {
+        payload.useReranker = useReranker;
+      }
+      if (rerankerApiKey) payload.rerankerApiKey = rerankerApiKey;
+      if (clearRerankerApiKey) payload.clearRerankerApiKey = true;
+    }
+    if (Object.keys(payload).length === 0) {
+      setNotice({ kind: "error", text: "请先填写或修改至少一项模型配置。" });
+      return;
+    }
 
     setIsSavingConfiguration(true);
     try {

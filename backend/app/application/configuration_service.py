@@ -60,101 +60,172 @@ class ConfigurationService:
         session: Session,
         *,
         workspace_id: str,
-        llm_provider: str,
-        llm_model: str,
-        llm_base_url: str,
+        llm_provider: str | None,
+        llm_model: str | None,
+        llm_base_url: str | None,
         llm_api_key: str | None,
-        clear_llm_api_key: bool,
-        embedding_provider: str,
-        embedding_model: str,
-        embedding_base_url: str,
+        clear_llm_api_key: bool | None,
+        embedding_provider: str | None,
+        embedding_model: str | None,
+        embedding_base_url: str | None,
         embedding_api_key: str | None,
-        clear_embedding_api_key: bool,
-        embedding_dimensions: int,
-        use_query_rewrite: bool,
-        use_query_router: bool,
-        use_reranker: bool,
-        reranker_provider: str,
-        reranker_model: str,
-        reranker_base_url: str,
+        clear_embedding_api_key: bool | None,
+        embedding_dimensions: int | None,
+        use_query_rewrite: bool | None,
+        use_query_router: bool | None,
+        use_reranker: bool | None,
+        reranker_provider: str | None,
+        reranker_model: str | None,
+        reranker_base_url: str | None,
         reranker_api_key: str | None,
-        clear_reranker_api_key: bool,
+        clear_reranker_api_key: bool | None,
     ) -> WorkspaceModelConfiguration:
         settings = get_settings()
         if not settings.allow_user_model_configuration:
             raise ConfigurationError(message="当前部署禁止在工作区中修改模型配置。")
-        self.validate_provider(
-            llm_provider,
-            llm_model,
-            llm_base_url,
-            allowed_providers={"evidence_synthesis", "openai_compatible"},
-        )
-        self.validate_provider(
-            embedding_provider,
-            embedding_model,
-            embedding_base_url,
-            allowed_providers={"hashing", "openai_compatible"},
-        )
-        self.validate_provider(
-            reranker_provider,
-            reranker_model,
-            reranker_base_url,
-            allowed_providers={"rule", "dashscope_compatible"},
-        )
         config = self.get(session, workspace_id=workspace_id)
+        effective = self.resolve_settings(session, workspace_id=workspace_id)
+
+        # 先用当前有效配置合并请求，再按模型组验证。这样一次保存一个模型组时，
+        # 未填写的其他模型不会因为空字段而触发校验失败。
+        next_llm_provider = llm_provider if llm_provider is not None else effective.llm_provider
+        next_llm_model = llm_model if llm_model is not None else effective.llm_model
+        next_llm_base_url = llm_base_url if llm_base_url is not None else effective.llm_base_url
+        next_embedding_provider = (
+            embedding_provider if embedding_provider is not None else effective.embedding_provider
+        )
+        next_embedding_model = (
+            embedding_model if embedding_model is not None else effective.embedding_model
+        )
+        next_embedding_base_url = (
+            embedding_base_url if embedding_base_url is not None else effective.embedding_base_url
+        )
+        next_embedding_dimensions = (
+            embedding_dimensions
+            if embedding_dimensions is not None
+            else effective.embedding_dimensions
+        )
+        next_reranker_provider = (
+            reranker_provider if reranker_provider is not None else effective.reranker_provider
+        )
+        next_reranker_model = (
+            reranker_model if reranker_model is not None else effective.reranker_model
+        )
+        next_reranker_base_url = (
+            reranker_base_url if reranker_base_url is not None else effective.reranker_base_url
+        )
+        next_use_query_rewrite = (
+            use_query_rewrite
+            if use_query_rewrite is not None
+            else effective.query_rewrite_enabled
+        )
+        next_use_query_router = (
+            use_query_router if use_query_router is not None else effective.query_router_enabled
+        )
+        next_use_reranker = (
+            use_reranker if use_reranker is not None else effective.reranker_enabled
+        )
+        llm_touched = any(
+            value is not None
+            for value in (
+                llm_provider,
+                llm_model,
+                llm_base_url,
+                llm_api_key,
+                clear_llm_api_key,
+                use_query_rewrite,
+                use_query_router,
+            )
+        )
+        embedding_touched = any(
+            value is not None
+            for value in (
+                embedding_provider,
+                embedding_model,
+                embedding_base_url,
+                embedding_api_key,
+                clear_embedding_api_key,
+                embedding_dimensions,
+            )
+        )
+        reranker_fields_touched = any(
+            value is not None
+            for value in (
+                reranker_provider,
+                reranker_model,
+                reranker_base_url,
+                reranker_api_key,
+                clear_reranker_api_key,
+            )
+        )
+        if llm_touched:
+            self.validate_provider(
+                next_llm_provider,
+                next_llm_model,
+                next_llm_base_url,
+                allowed_providers={"evidence_synthesis", "openai_compatible"},
+            )
+        if embedding_touched:
+            self.validate_provider(
+                next_embedding_provider,
+                next_embedding_model,
+                next_embedding_base_url,
+                allowed_providers={"hashing", "openai_compatible"},
+            )
+        if reranker_fields_touched or use_reranker is True:
+            self.validate_provider(
+                next_reranker_provider,
+                next_reranker_model,
+                next_reranker_base_url,
+                allowed_providers={"rule", "dashscope_compatible"},
+            )
+
         # 比较的是实际向量空间身份而非 API Key。密钥轮换不应造成不必要的全库重建。
         old_embedding_identity = (
-            (
-                config.embedding_provider,
-                config.embedding_model,
-                config.embedding_base_url,
-                config.embedding_dimensions,
-            )
-            if config is not None
-            else (
-                settings.embedding_provider,
-                settings.embedding_model,
-                settings.embedding_base_url,
-                settings.embedding_dimensions,
-            )
+            effective.embedding_provider,
+            effective.embedding_model,
+            effective.embedding_base_url,
+            effective.embedding_dimensions,
         )
         new_embedding_identity = (
-            embedding_provider,
-            embedding_model,
-            embedding_base_url,
-            embedding_dimensions,
+            next_embedding_provider,
+            next_embedding_model,
+            next_embedding_base_url,
+            next_embedding_dimensions,
         )
         if config is None:
+            # 首次创建时把完整的有效值写入工作区，避免 ORM 默认值覆盖部署配置。
             config = WorkspaceModelConfiguration(workspace_id=workspace_id)
+            config.embedding_revision = 1
             session.add(config)
-        config.llm_provider = llm_provider
-        config.llm_model = llm_model
-        config.llm_base_url = llm_base_url
-        config.embedding_provider = embedding_provider
-        config.embedding_model = embedding_model
-        config.embedding_base_url = embedding_base_url
-        config.embedding_dimensions = embedding_dimensions
-        config.use_query_rewrite = use_query_rewrite
-        config.use_query_router = use_query_router
-        config.use_reranker = use_reranker
-        config.reranker_provider = reranker_provider
-        config.reranker_model = reranker_model
-        config.reranker_base_url = reranker_base_url
+        config.llm_provider = next_llm_provider
+        config.llm_model = next_llm_model
+        config.llm_base_url = next_llm_base_url
+        config.embedding_provider = next_embedding_provider
+        config.embedding_model = next_embedding_model
+        config.embedding_base_url = next_embedding_base_url
+        config.embedding_dimensions = next_embedding_dimensions
+        config.use_query_rewrite = next_use_query_rewrite
+        config.use_query_router = next_use_query_router
+        config.use_reranker = next_use_reranker
+        config.reranker_provider = next_reranker_provider
+        config.reranker_model = next_reranker_model
+        config.reranker_base_url = next_reranker_base_url
         if old_embedding_identity != new_embedding_identity:
             # ORM 的 Python 端 default 会在 flush 时才落值；新建配置对象这里需要显式兜底。
             config.embedding_revision = (config.embedding_revision or 1) + 1
             KnowledgeBaseRepository().mark_indexes_stale(session, workspace_id=workspace_id)
         if llm_api_key:
             config.llm_api_key_encrypted = self._encrypt(llm_api_key)
-        elif clear_llm_api_key:
+        elif clear_llm_api_key is True:
             config.llm_api_key_encrypted = None
         if embedding_api_key:
             config.embedding_api_key_encrypted = self._encrypt(embedding_api_key)
-        elif clear_embedding_api_key:
+        elif clear_embedding_api_key is True:
             config.embedding_api_key_encrypted = None
         if reranker_api_key:
             config.reranker_api_key_encrypted = self._encrypt(reranker_api_key)
-        elif clear_reranker_api_key:
+        elif clear_reranker_api_key is True:
             config.reranker_api_key_encrypted = None
         session.commit()
         session.refresh(config)

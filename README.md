@@ -156,7 +156,7 @@ PostgreSQL 或 Redis，但仍需要已安装 Docker Desktop。解压 ZIP 不会�
 即可继续使用原有本地数据。维护者可运行以下命令生成与 GitHub Release 相同结构的干净源码包：
 
 ```powershell
-.\scripts\package-release.ps1 -Version v0.1.0
+.\scripts\package-release.ps1 -Version v0.1.1
 ```
 
 ### 方式一：Docker Compose（推荐）

@@ -345,25 +345,25 @@ export type WorkspaceModelConfiguration = {
 };
 
 export type UpdateWorkspaceModelConfiguration = {
-  llmProvider: string;
-  llmModel: string;
-  llmBaseUrl: string;
+  llmProvider?: string;
+  llmModel?: string;
+  llmBaseUrl?: string;
   llmApiKey?: string;
-  clearLlmApiKey: boolean;
-  embeddingProvider: string;
-  embeddingModel: string;
-  embeddingBaseUrl: string;
+  clearLlmApiKey?: boolean;
+  embeddingProvider?: string;
+  embeddingModel?: string;
+  embeddingBaseUrl?: string;
   embeddingApiKey?: string;
-  clearEmbeddingApiKey: boolean;
-  embeddingDimensions: number;
-  useQueryRewrite: boolean;
-  useQueryRouter: boolean;
-  useReranker: boolean;
-  rerankerProvider: string;
-  rerankerModel: string;
-  rerankerBaseUrl: string;
+  clearEmbeddingApiKey?: boolean;
+  embeddingDimensions?: number;
+  useQueryRewrite?: boolean;
+  useQueryRouter?: boolean;
+  useReranker?: boolean;
+  rerankerProvider?: string;
+  rerankerModel?: string;
+  rerankerBaseUrl?: string;
   rerankerApiKey?: string;
-  clearRerankerApiKey: boolean;
+  clearRerankerApiKey?: boolean;
 };
 
 export type ModelConnectionKind = "llm" | "embedding" | "reranker";

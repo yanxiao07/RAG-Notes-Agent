@@ -43,25 +43,30 @@ class WorkspaceModelConfigurationResponse(ApiModel):
 
 
 class UpdateWorkspaceModelConfigurationRequest(ApiModel):
-    llm_provider: str = Field(min_length=1, max_length=80)
-    llm_model: str = Field(default="", max_length=160)
-    llm_base_url: str = Field(default="", max_length=500)
+    """工作区模型设置的字段级更新请求。
+
+    未传入的字段沿用该工作区当前生效的配置，使三个模型组可以独立保存。
+    """
+
+    llm_provider: str | None = Field(default=None, min_length=1, max_length=80)
+    llm_model: str | None = Field(default=None, max_length=160)
+    llm_base_url: str | None = Field(default=None, max_length=500)
     llm_api_key: str | None = Field(default=None, min_length=1, max_length=1000)
-    clear_llm_api_key: bool = False
-    embedding_provider: str = Field(min_length=1, max_length=80)
-    embedding_model: str = Field(default="", max_length=160)
-    embedding_base_url: str = Field(default="", max_length=500)
+    clear_llm_api_key: bool | None = None
+    embedding_provider: str | None = Field(default=None, min_length=1, max_length=80)
+    embedding_model: str | None = Field(default=None, max_length=160)
+    embedding_base_url: str | None = Field(default=None, max_length=500)
     embedding_api_key: str | None = Field(default=None, min_length=1, max_length=1000)
-    clear_embedding_api_key: bool = False
-    embedding_dimensions: int = Field(default=1536, ge=8, le=8192)
-    use_query_rewrite: bool = False
-    use_query_router: bool = False
-    use_reranker: bool = False
-    reranker_provider: str = Field(default="rule", min_length=1, max_length=80)
-    reranker_model: str = Field(default="", max_length=160)
-    reranker_base_url: str = Field(default="", max_length=500)
+    clear_embedding_api_key: bool | None = None
+    embedding_dimensions: int | None = Field(default=None, ge=8, le=8192)
+    use_query_rewrite: bool | None = None
+    use_query_router: bool | None = None
+    use_reranker: bool | None = None
+    reranker_provider: str | None = Field(default=None, min_length=1, max_length=80)
+    reranker_model: str | None = Field(default=None, max_length=160)
+    reranker_base_url: str | None = Field(default=None, max_length=500)
     reranker_api_key: str | None = Field(default=None, min_length=1, max_length=1000)
-    clear_reranker_api_key: bool = False
+    clear_reranker_api_key: bool | None = None
 
 
 class TestModelConnectionRequest(ApiModel):

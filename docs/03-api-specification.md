@@ -39,6 +39,7 @@
 | GET | `/health` | 存活检查 |
 | GET | `/api/v1/workspace` | 查询当前请求工作区 |
 | GET | `/api/v1/workspace/identity` | 查询服务端解析出的工作区、用户主体和角色 |
+| PUT | `/api/v1/runtime/model-configuration` | 工作区模型配置字段级更新；未传字段保留当前有效设置，可独立保存 LLM、Embedding 或 Reranker |
 | GET/POST | `/api/v1/workspace/members` | owner 查询或创建当前工作区成员 |
 | PATCH | `/api/v1/workspace/members/{userId}` | owner 修改成员角色或启用状态 |
 | GET/POST | `/api/v1/workspace/access-tokens` | owner 查询令牌元数据或创建仅展示一次的令牌 |
