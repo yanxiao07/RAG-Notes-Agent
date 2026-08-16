@@ -156,7 +156,7 @@ PostgreSQL 或 Redis，但仍需要已安装 Docker Desktop。解压 ZIP 不会�
 即可继续使用原有本地数据。维护者可运行以下命令生成与 GitHub Release 相同结构的干净源码包：
 
 ```powershell
-.\scripts\package-release.ps1 -Version v0.1.1
+.\scripts\package-release.ps1 -Version v0.1.2
 ```
 
 ### 方式一：Docker Compose（推荐）
@@ -180,6 +180,19 @@ docker compose up --build
 ```powershell
 docker compose down
 ```
+
+### 并发导入扩容
+
+生产 Compose 默认每个 Worker 进程并发处理 `2` 个任务。任务表使用短租约和 PostgreSQL
+`FOR UPDATE SKIP LOCKED` 领取机制，可按积压量水平扩展多个 Worker：
+
+```powershell
+docker compose up -d --scale worker=4
+```
+
+该示例的理论任务并发为 `4 x 2 = 8`。实际值须受 CPU、PDF/DOCX 解析内存、数据库连接池和
+Embedding 网关配额共同约束；`APP_MODEL_MAX_CONCURRENCY` 通过 Redis 在所有副本间共享，不能
+仅按 Worker 数量放大。Redis 故障时系统降级为进程内并发闸门并记录告警，此时不应继续水平扩容。
 
 `docker compose down -v` 会删除 PostgreSQL 与 Redis 的 Docker 数据卷，只应在确认不再需要本地数据时使用。
 

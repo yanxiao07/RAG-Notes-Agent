@@ -1,6 +1,8 @@
 """持久入库队列的租约、退避和死信状态机测试。"""
 
 from datetime import UTC, timedelta
+from threading import Lock
+from time import sleep
 
 import pytest
 
@@ -9,7 +11,8 @@ from app.application.knowledge_service import KnowledgeService
 from app.core.errors import ProcessingError
 from app.core.workspace import ensure_workspace
 from app.domain.knowledge.models import utc_now
-from app.workers.polling import reclaim_stale_jobs
+from app.workers import polling
+from app.workers.polling import claim_next_job, reclaim_stale_jobs, run_available_jobs
 
 
 def _create_broken_job(session):
@@ -80,3 +83,51 @@ def test_reclaim_stale_worker_lease_requeues_job(session_factory) -> None:
         assert job.locked_by is None
         assert job.available_at.replace(tzinfo=UTC) == now
         assert document.status == "failed"
+
+
+def test_claimed_job_cannot_be_claimed_by_another_worker(
+    session_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """领取事务提交后即写入 claimed，其他 Worker 不得再次领取同一任务。"""
+
+    monkeypatch.setattr(polling, "SessionLocal", session_factory)
+    with session_factory() as session:
+        _, job = _create_broken_job(session)
+        workspace_id = ensure_workspace(session).id
+        job_id = job.id
+
+    assert claim_next_job(workspace_id=workspace_id, worker_id="worker-a") == job_id
+    assert claim_next_job(workspace_id=workspace_id, worker_id="worker-b") is None
+
+    with session_factory() as session:
+        refreshed = session.get(type(job), job_id)
+        assert refreshed is not None
+        assert refreshed.state == "claimed"
+        assert refreshed.locked_by == "worker-a"
+
+
+def test_worker_processes_available_jobs_with_bounded_concurrency(monkeypatch) -> None:
+    """任务积压时线程池只使用配置的槽位数，避免无界并行压垮模型网关。"""
+
+    job_ids = iter(["job-1", "job-2", "job-3", None])
+    active = 0
+    max_active = 0
+    lock = Lock()
+
+    def claim(**_: str) -> str | None:
+        return next(job_ids, None)
+
+    def execute(**_: str) -> None:
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+        sleep(0.03)
+        with lock:
+            active -= 1
+
+    monkeypatch.setattr(polling, "claim_next_job", claim)
+    monkeypatch.setattr(polling, "_execute_claimed_job", execute)
+
+    assert run_available_jobs(workspace_id="workspace", worker_id="worker", concurrency=2) == 3
+    assert max_active == 2

@@ -1,9 +1,16 @@
 """模型网关调用治理的纯函数与重试策略测试。"""
 
 import httpx
+import pytest
 
 from app.core.config import Settings
-from app.core.model_resilience import call_with_model_resilience, retry_delay
+from app.core.errors import ModelUnavailableError
+from app.core.model_resilience import (
+    _distributed_lease_seconds,
+    call_with_model_resilience,
+    distributed_model_call_slot,
+    retry_delay,
+)
 
 
 def _status_error(status_code: int) -> httpx.HTTPStatusError:
@@ -61,3 +68,32 @@ def test_retry_delay_is_capped() -> None:
     assert retry_delay(settings, 0) == 2.0
     assert retry_delay(settings, 1) == 4.0
     assert retry_delay(settings, 2) == 5.0
+
+
+def test_distributed_lease_covers_model_timeout_and_retries() -> None:
+    settings = Settings(
+        llm_timeout_seconds=120,
+        model_retry_attempts=2,
+        model_retry_base_seconds=1,
+        model_retry_max_seconds=2,
+        model_distributed_lease_seconds=30,
+    )
+    # 120 * 3 + (1 + 2) + 30 秒安全余量。
+    assert _distributed_lease_seconds(settings) == 394
+
+
+def test_distributed_model_slot_rejects_when_global_quota_is_full(monkeypatch) -> None:
+    """Redis 正常可用但没有全局槽位时，不能退化为无限制调用。"""
+
+    class FullGate:
+        def acquire(self, **_: object) -> None:
+            return None
+
+    settings = Settings(redis_url="redis://redis.example.test:6379/0")
+    monkeypatch.setattr("app.core.model_resilience._distributed_gate_for", lambda _: FullGate())
+
+    with (
+        pytest.raises(ModelUnavailableError, match="全局并发"),
+        distributed_model_call_slot(settings, operation="embedding"),
+    ):
+        pass

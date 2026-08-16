@@ -652,8 +652,11 @@ class IngestionService:
         )
         if job is None:
             raise ResourceNotFoundError(details={"resource": "ingestion_job"})
-        if job.state not in {"queued", "failed"}:
+        if job.state not in {"queued", "failed", "claimed"}:
             raise ProcessingError(message="当前入库任务不能执行。", details={"state": job.state})
+        if job.state == "claimed" and worker_id and job.locked_by != worker_id:
+            # 领取与执行之间可能跨 Session；只允许持有租约的 Worker 推进状态机。
+            raise ProcessingError(message="入库任务已被其他 Worker 领取。")
 
         job.state = "running"
         job.attempts += 1

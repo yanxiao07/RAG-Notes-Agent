@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     ingestion_lease_seconds: int = Field(default=900, ge=30, le=86_400)
     ingestion_retry_base_seconds: float = Field(default=5.0, ge=0.5, le=3_600)
     ingestion_retry_max_seconds: float = Field(default=300.0, ge=1.0, le=86_400)
+    # 单个 Worker 进程允许并行处理的文档数。任务领取仍由数据库租约保证唯一性。
+    ingestion_worker_concurrency: int = Field(default=1, ge=1, le=32)
     # 生产审批角色映射：workspace_id:actor_id=owner,workspace_id:actor_id=approver。
     workspace_actor_roles: str = ""
     agent_proposal_ttl_seconds: int = Field(default=86_400, ge=300, le=2_592_000)
@@ -65,6 +67,9 @@ class Settings(BaseSettings):
     # 所有外部模型调用共享进程级并发闸门和指数退避策略。
     model_max_concurrency: int = Field(default=4, ge=1, le=64)
     model_acquire_timeout_seconds: float = Field(default=3.0, ge=0.1, le=60.0)
+    # 多 Worker 部署时优先用 Redis 共享模型配额；Redis 故障时保留进程级闸门以保障可用性。
+    model_distributed_concurrency_enabled: bool = True
+    model_distributed_lease_seconds: int = Field(default=300, ge=30, le=7_200)
     model_retry_attempts: int = Field(default=2, ge=0, le=5)
     model_retry_base_seconds: float = Field(default=0.5, ge=0.1, le=30.0)
     model_retry_max_seconds: float = Field(default=8.0, ge=0.5, le=120.0)

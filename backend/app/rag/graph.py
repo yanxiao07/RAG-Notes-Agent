@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -396,16 +397,14 @@ class GraphIndexService:
             for candidate in extraction.entities:
                 entity = entities.get(candidate.normalized_name)
                 if entity is None:
-                    entity = KnowledgeEntity(
+                    entity = self._get_or_create_entity(
+                        session,
                         workspace_id=workspace_id,
                         knowledge_base_id=knowledge_base_id,
-                        name=candidate.name[:160],
-                        normalized_name=candidate.normalized_name[:160],
+                        name=candidate.name,
+                        normalized_name=candidate.normalized_name,
                         entity_type=candidate.entity_type,
-                        mention_count=0,
                     )
-                    session.add(entity)
-                    session.flush()
                     entities[candidate.normalized_name] = entity
                 entity_by_name[candidate.normalized_name] = entity
                 session.add(
@@ -439,6 +438,48 @@ class GraphIndexService:
                 )
         session.flush()
         return indexed_mentions
+
+    @staticmethod
+    def _get_or_create_entity(
+        session: Session,
+        *,
+        workspace_id: str,
+        knowledge_base_id: str,
+        name: str,
+        normalized_name: str,
+        entity_type: str,
+    ) -> KnowledgeEntity:
+        """以保存点隔离实体唯一键竞争，允许不同文档并行写入同一知识库。
+
+        多个 Worker 都可能在各自快照中看不到同名实体。直接 ``SELECT -> INSERT`` 会触发
+        唯一索引异常并回滚整篇文档；冲突仅回滚本次插入保存点，随后读取先提交的实体继续
+        写入 mention/relation，保证 GraphRAG 索引不会降低主入库任务的可靠性。
+        """
+
+        entity = KnowledgeEntity(
+            workspace_id=workspace_id,
+            knowledge_base_id=knowledge_base_id,
+            name=name[:160],
+            normalized_name=normalized_name[:160],
+            entity_type=entity_type,
+            mention_count=0,
+        )
+        try:
+            with session.begin_nested():
+                session.add(entity)
+                session.flush()
+        except IntegrityError:
+            entity = session.scalar(
+                select(KnowledgeEntity).where(
+                    KnowledgeEntity.workspace_id == workspace_id,
+                    KnowledgeEntity.knowledge_base_id == knowledge_base_id,
+                    KnowledgeEntity.normalized_name == normalized_name[:160],
+                )
+            )
+            if entity is None:
+                # 唯一键冲突后记录应已可见；否则交由任务重试，而不是绑定错误实体。
+                raise
+        return entity
 
     def delete_document(self, session: Session, *, document_id: str, workspace_id: str) -> None:
         """删除文档的图索引；切块本身由文档仓储负责删除。"""

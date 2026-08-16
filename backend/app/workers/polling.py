@@ -12,6 +12,7 @@ import os
 import socket
 import time
 from collections.abc import Iterator
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from datetime import timedelta
 
 from sqlalchemy import or_, select
@@ -61,7 +62,7 @@ def reclaim_stale_jobs(
     cutoff = effective_now - timedelta(seconds=lease_seconds)
     statement = select(IngestionJob).where(
         IngestionJob.workspace_id == workspace_id,
-        IngestionJob.state == "running",
+        IngestionJob.state.in_(("claimed", "running")),
         IngestionJob.locked_at.is_not(None),
         IngestionJob.locked_at < cutoff,
     )
@@ -84,10 +85,9 @@ def _default_worker_id() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
 
 
-def run_once(*, workspace_id: str, worker_id: str | None = None) -> bool:
-    """执行一次领取循环；返回是否处理了任务。"""
+def claim_next_job(*, workspace_id: str, worker_id: str) -> str | None:
+    """短事务领取一个任务，并将其置为 ``claimed`` 防止其他 Worker 重复领取。"""
 
-    effective_worker_id = worker_id or _default_worker_id()
     settings = get_settings()
     with SessionLocal() as claim_session:
         ensure_workspace(claim_session, workspace_id=workspace_id, create_default=False)
@@ -100,28 +100,80 @@ def run_once(*, workspace_id: str, worker_id: str | None = None) -> bool:
         job = next(iter_pending_jobs(claim_session, workspace_id=workspace_id), None)
         if job is None:
             claim_session.rollback()
-            return False
+            return None
+        # SKIP LOCKED 仅在本事务内有效，提交前必须修改状态，才能使租约跨事务生效。
+        job.state = "claimed"
         job.locked_at = utc_now()
-        job.locked_by = effective_worker_id
+        job.locked_by = worker_id
         claim_session.commit()
-        job_id = job.id
+        # 仅记录任务与 Worker 标识，供并发验收和运维排障使用，不记录文档标题或正文。
+        logger.info("polling_ingestion_job_claimed", job_id=job.id, worker_id=worker_id)
+        return job.id
 
-    # 领取事务提交后再执行耗时模型/解析调用，避免长事务持有数据库锁。
+
+def _execute_claimed_job(*, job_id: str, workspace_id: str, worker_id: str) -> None:
+    """每个并行任务使用独立 Session，避免 SQLAlchemy Session 跨线程共享。"""
+
     with SessionLocal() as work_session:
         try:
             IngestionService().run_job(
                 work_session,
                 job_id=job_id,
                 workspace_id=workspace_id,
-                worker_id=effective_worker_id,
+                worker_id=worker_id,
             )
         except Exception:
             logger.exception(
                 "polling_ingestion_job_failed",
                 job_id=job_id,
-                worker_id=effective_worker_id,
+                worker_id=worker_id,
             )
-        return True
+
+
+def run_once(*, workspace_id: str, worker_id: str | None = None) -> bool:
+    """同步执行一个已领取任务，保留给单次维护命令和回归测试使用。"""
+
+    effective_worker_id = worker_id or _default_worker_id()
+    job_id = claim_next_job(workspace_id=workspace_id, worker_id=effective_worker_id)
+    if job_id is None:
+        return False
+    _execute_claimed_job(
+        job_id=job_id,
+        workspace_id=workspace_id,
+        worker_id=effective_worker_id,
+    )
+    return True
+
+
+def run_available_jobs(*, workspace_id: str, worker_id: str, concurrency: int) -> int:
+    """以有界线程池处理当前可领取任务，空闲时立即返回给轮询循环。
+
+    每个槽位只领取一个任务，完成后才继续领取，避免在模型网关或数据库变慢时无限
+    抢占任务。多进程/多容器的唯一性仍由 ``claimed`` 状态和 PostgreSQL 行锁保证。
+    """
+
+    processed = 0
+    pending: set[Future[None]] = set()
+    with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="ingestion") as executor:
+        while True:
+            while len(pending) < concurrency:
+                job_id = claim_next_job(workspace_id=workspace_id, worker_id=worker_id)
+                if job_id is None:
+                    break
+                pending.add(
+                    executor.submit(
+                        _execute_claimed_job,
+                        job_id=job_id,
+                        workspace_id=workspace_id,
+                        worker_id=worker_id,
+                    )
+                )
+                processed += 1
+            if not pending:
+                return processed
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                future.result()
 
 
 def main() -> int:
@@ -129,12 +181,24 @@ def main() -> int:
     parser.add_argument("--workspace-id", default=get_settings().default_workspace_id)
     parser.add_argument("--interval-seconds", type=float, default=2.0)
     parser.add_argument("--worker-id", default=_default_worker_id())
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=get_settings().ingestion_worker_concurrency,
+        help="单个 Worker 进程的并行入库任务数。",
+    )
     parser.add_argument("--once", action="store_true")
     arguments = parser.parse_args()
     if arguments.interval_seconds <= 0:
         raise SystemExit("interval-seconds 必须大于 0")
+    if arguments.concurrency <= 0:
+        raise SystemExit("concurrency 必须大于 0")
     while True:
-        handled = run_once(workspace_id=arguments.workspace_id, worker_id=arguments.worker_id)
+        handled = run_available_jobs(
+            workspace_id=arguments.workspace_id,
+            worker_id=arguments.worker_id,
+            concurrency=arguments.concurrency,
+        )
         if arguments.once:
             return 0
         if not handled:
